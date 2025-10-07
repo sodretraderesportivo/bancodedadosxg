@@ -334,6 +334,30 @@
         updateAddButtonState(); 
     };
     
+    // FUNÇÕES GLOBAIS DE MANIPULAÇÃO DE MODAL (MOVIDAS PARA O ESCOPO GLOBAL)
+    
+    // CORREÇÃO: Função global para manipulação de campos do modal de saída
+    const handleExitFormChangeModal = (e) => {
+        // Prevents default form submit/action that causes scroll and focus loss
+        // Removido e.preventDefault() aqui para evitar interferência na digitação.
+        
+        const { name, value } = e.target;
+        state.exitForm[name] = value;
+        
+        // Força a re-renderização APENAS do modal para atualizar bloqueio de campos (Lay 0x1)
+        // O timeout permite que a digitação se complete antes da re-renderização, resolvendo a perda de foco.
+        setTimeout(renderExitModal, 0); 
+    };
+
+    const handleTimelineChange = (method, index, value) => {
+        const key = `${method}PnlTimeline`;
+        state.exitForm[key][index].pnl = value;
+    };
+
+    // ATTACHMENT TO WINDOW FOR INLINE EVENTS (CORRIGIDO NOVAMENTE)
+    window.handleExitFormChangeModal = handleExitFormChangeModal;
+    window.handleTimelineChange = handleTimelineChange;
+    
 
     const handleAddTrade = async (e) => {
         e.preventDefault();
@@ -361,9 +385,10 @@
             goalMinute: null, 
             goalTeam: null,
             // NOVOS CAMPOS PARA TRANSFERÊNCIA DE LUCRO
-            initialPnl0x0: null,
-            stakeTradeOut: null,
-            finalPnlConsolidated: null, // Será o mesmo que dutchingExit, mas explicitando o propósito
+            initialPnl: null, // Usando Pnl, pois 0x0 não é o único placar
+            tradeOutCost: null, // NOVO CAMPO: Custo de Proteção (substitui stakeTradeOut)
+            additionalProtections: null, 
+            finalPnlConsolidated: null, 
             // FIM NOVOS CAMPOS
             dutchingPnlTimeline: TIME_POINTS.map(time => ({ time, pnl: null })), 
             layPnlTimeline: TIME_POINTS.map(time => ({ time, pnl: null })),      
@@ -401,8 +426,9 @@
             goalMinute: trade.goalMinute || '', 
             goalTeam: trade.goalTeam || '',
             // NOVOS CAMPOS DE TRANSFERÊNCIA DE LUCRO
-            initialPnl0x0: trade.initialPnl0x0 || '',
-            stakeTradeOut: trade.stakeTradeOut || '',
+            initialPnl: trade.initialPnl || '',
+            tradeOutCost: trade.tradeOutCost || '', // NOVO CAMPO
+            additionalProtections: trade.additionalProtections || '', 
             finalPnlConsolidated: trade.finalPnlConsolidated || '',
             // FIM NOVOS CAMPOS
             dutchingPnlTimeline: dutchTimeline,
@@ -434,8 +460,9 @@
             goalMinute: trade.goalMinute || '',
             goalTeam: trade.goalTeam || '',
             // NOVOS CAMPOS DE TRANSFERÊNCIA DE LUCRO
-            initialPnl0x0: trade.initialPnl0x0 || '',
-            stakeTradeOut: trade.stakeTradeOut || '',
+            initialPnl: trade.initialPnl || '',
+            tradeOutCost: trade.tradeOutCost || '', // NOVO CAMPO
+            additionalProtections: trade.additionalProtections || '', 
             finalPnlConsolidated: trade.finalPnlConsolidated || '',
             // FIM NOVOS CAMPOS
             dutchingPnlTimeline: dutchTimeline,
@@ -445,17 +472,6 @@
         updateState({ editingTradeId: trade.id });
     };
 
-    const handleExitFormChange = (e) => {
-        const { name, value } = e.target;
-        state.exitForm[name] = value;
-        // Chama o renderExitModal para atualizar a UI dinamicamente
-        renderExitModal(); 
-    };
-
-    const handleTimelineChange = (method, index, value) => {
-        const key = `${method}PnlTimeline`;
-        state.exitForm[key][index].pnl = value;
-    };
 
     const handleSaveExit = async (e) => {
         e.preventDefault();
@@ -476,8 +492,9 @@
             goalMinute: ef.goalMinute ? parseInt(ef.goalMinute) : null,
             goalTeam: ef.goalTeam || null,
             // NOVOS CAMPOS
-            initialPnl0x0: ef.initialPnl0x0 || null,
-            stakeTradeOut: ef.stakeTradeOut || null,
+            initialPnl: ef.initialPnl || null,
+            tradeOutCost: ef.tradeOutCost || null, // NOVO CAMPO
+            additionalProtections: ef.additionalProtections || null, 
             finalPnlConsolidated: ef.finalPnlConsolidated || ef.dutchingExit || null,
             // FIM NOVOS CAMPOS
             dutchingPnlTimeline: ef.dutchingPnlTimeline.map(item => ({...item, pnl: item.pnl === '' ? null : item.pnl})), 
@@ -558,7 +575,7 @@
             if (dutchExit !== 0) {
                 totalPnlDutch += dutchExit;
                 
-                // 1. Cumulative PnL Data (Gráfico 1)
+                // 1. Cumulative Pnl Data (Gráfico 1)
                 cumulativePnl += dutchExit;
                 cumulativePnlData.push({ tradeNumber: index + 1, pnl: cumulativePnl * 100 }); 
 
@@ -667,6 +684,7 @@
         5. **XG por Equipe:** Para perguntas sobre XG de times específicos, a IA deve primeiro tentar identificar o time no 'gameName' (ex: "Time X v Time Y") e calcular a média de 'xgHome' ou 'xgAway' desse time em todos os jogos em que ele apareceu.
         6. **Métricas Chave:** Calcule sempre o PnL Total, Winrate, e o Red/Green Médio.
         7. **Conversão:** Retorne os valores de PnL e Red/Green em porcentagens (Ex: 0.15 deve ser 15%).
+        8. **LOGICA FINANCEIRA:** O campo 'tradeOutCost' representa o custo (redução de lucro) para proteger placares adicionais (additionalProtections). O 'finalPnlConsolidated' é o lucro final após esse custo.
 
         Aqui estão os dados de trades do usuário para análise:
         ${tradeDataJson}`;
@@ -995,7 +1013,7 @@
         tbody.className = 'bg-white divide-y divide-gray-200';
 
         state.trades.forEach(trade => {
-            const row = tbody.insertRow(); // CORRIGIDO: Deve ser insertRow() em tbody
+            const row = tbody.insertRow(); 
             row.className = trade.isActive ? 'bg-yellow-50' : 'bg-white';
 
             const eventDisplay = trade.goalMinute && trade.goalTeam 
@@ -1101,18 +1119,18 @@
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
                         <label class="block text-gray-700 text-sm font-bold mb-1">Jogo:</label>
-                        <input type="text" name="gameName" value="${gameNameValue}" class="text-input" />
+                        <input type="text" name="gameName" value="${gameNameValue}" class="text-input" oninput="handleExitFormChangeModal(event)"/>
                     </div>
                     <div>
                         <label class="block text-gray-700 text-sm font-bold mb-1">Data:</label>
-                        <input type="date" name="date" value="${dateValue}" class="text-input" />
+                        <input type="date" name="date" value="${dateValue}" class="text-input" oninput="handleExitFormChangeModal(event)"/>
                     </div>
                 </div>
                 <div class="grid grid-cols-3 gap-4 mb-6 border-b pb-4">
                     ${metrics.map(m => `
                         <div>
                             <label class="block text-gray-700 text-sm font-bold mb-1">${m.label}:</label>
-                            <input type="${m.type}" name="${m.name}" value="${m.value}" step="${m.step || ''}" class="text-input"/>
+                            <input type="${m.type}" name="${m.name}" value="${m.value}" step="${m.step || ''}" class="text-input" oninput="handleExitFormChangeModal(event)"/>
                         </div>
                     `).join('')}
                 </div>
@@ -1123,7 +1141,7 @@
         const formHtml = `
             <div class="fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center p-4">
                 <form id="exit-form" class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-4xl exit-modal-content">
-                    <h3 class="text-xl font-bold mb-4 text-gray-800">${modalTitle}</h3>
+                    <h3 class="xl font-bold mb-4 text-gray-800">${modalTitle}</h3>
                     
                     ${renderInitialInputs()}
 
@@ -1136,12 +1154,12 @@
                             <!-- Minuto do GOL -->
                             <div>
                                 <label class="modal-label">Minuto do GOL:</label>
-                                <input type="number" name="goalMinute" value="${state.exitForm.goalMinute}" placeholder="Ex: 55" class="text-input"/>
+                                <input type="number" name="goalMinute" value="${state.exitForm.goalMinute}" placeholder="Ex: 55" class="text-input" oninput="handleExitFormChangeModal(event)"/>
                             </div>
                             <!-- Time que Marcou o Gol -->
                             <div>
                                 <label class="modal-label">Time que Marcou:</label>
-                                <select name="goalTeam" class="text-input">
+                                <select name="goalTeam" class="text-input" oninput="handleExitFormChangeModal(event)">
                                     <option value="">-- Selecione --</option>
                                     <option value="Casa" ${state.exitForm.goalTeam === 'Casa' ? 'selected' : ''}>Casa (Favorito)</option>
                                     <option value="Fora" ${state.exitForm.goalTeam === 'Fora' ? 'selected' : ''}>Fora (Zebra)</option>
@@ -1152,29 +1170,33 @@
 
                         <!-- Placar Final (Colspan) -->
                         <div class="col-span-2 flex items-end">
-                             <!-- Item de Placar Final é alinhado abaixo dos campos de GOL para simetria visual na linha vertical -->
                             <div class="w-full"> 
                                 <label class="modal-label">Placar Final:</label>
-                                <input type="text" name="finalScore" value="${state.exitForm.finalScore}" placeholder="Ex: 1-1" class="text-input"/>
+                                <input type="text" name="finalScore" value="${state.exitForm.finalScore}" placeholder="Ex: 1-1" class="text-input" oninput="handleExitFormChangeModal(event)"/>
                             </div>
                         </div>
                         
                         <!-- Seção de Transferência de Lucro (Transferida para baixo para melhor alinhamento) -->
-                         <div class="col-span-4 border p-3 rounded-lg bg-yellow-50 grid grid-cols-3 gap-4 mt-2">
+                         <div class="col-span-4 border p-3 rounded-lg bg-yellow-50 grid grid-cols-4 gap-4 mt-2">
                             <!-- Lucro Inicial XG -->
                             <div>
                                 <label class="modal-label">Lucro Inicial XG (%):</label>
-                                <input type="text" name="initialPnl0x0" value="${state.exitForm.initialPnl0x0}" placeholder="Ex: +15%" class="text-input"/>
+                                <input type="text" name="initialPnl" value="${state.exitForm.initialPnl}" placeholder="Ex: +36%" class="text-input" oninput="handleExitFormChangeModal(event)"/>
                             </div>
-                             <!-- Joguei pra Frente -->
+                             <!-- Custo Proteção -->
                             <div>
-                                <label class="modal-label">Joguei pra Frente (%):</label>
-                                <input type="text" name="stakeTradeOut" value="${state.exitForm.stakeTradeOut}" placeholder="Ex: 50%" class="text-input"/>
+                                <label class="modal-label">Custo Proteção (%):</label>
+                                <input type="text" name="tradeOutCost" value="${state.exitForm.tradeOutCost}" placeholder="Ex: 10%" class="text-input" oninput="handleExitFormChangeModal(event)"/>
+                            </div>
+                            <!-- Proteções Adicionais -->
+                            <div>
+                                <label class="modal-label">Placares Protegidos Adicionais:</label>
+                                <input type="text" name="additionalProtections" value="${state.exitForm.additionalProtections}" placeholder="Ex: 3x0, 2x2" class="text-input" oninput="handleExitFormChangeModal(event)"/>
                             </div>
                             <!-- Lucro Final Consolidado -->
                              <div>
                                 <label class="modal-label">Lucro Final Dutching (%):</label>
-                                <input type="text" name="finalPnlConsolidated" value="${state.exitForm.finalPnlConsolidated}" placeholder="Ex: +25% (Total)" class="text-input"/>
+                                <input type="text" name="finalPnlConsolidated" value="${state.exitForm.finalPnlConsolidated}" placeholder="Ex: +26% (Consol.)" class="text-input" oninput="handleExitFormChangeModal(event)"/>
                             </div>
                         </div>
 
@@ -1183,11 +1205,11 @@
                         <div class="grid grid-cols-2 gap-4 col-span-2">
                             <div>
                                 <label class="modal-label">Saída Dutching (Cashout %):</label>
-                                <input type="text" name="dutchingExit" value="${state.exitForm.dutchingExit}" placeholder="Ex: +18% ou -40%" class="text-input"/>
+                                <input type="text" name="dutchingExit" value="${state.exitForm.dutchingExit}" placeholder="Ex: +18% ou -40%" class="text-input" oninput="handleExitFormChangeModal(event)"/>
                             </div>
                             <div>
                                 <label class="modal-label">Minuto da Saída Dutching (Cashout):</label>
-                                <input type="number" name="dutchingExitMinute" value="${state.exitForm.dutchingExitMinute}" placeholder="Minuto do Cashout" class="text-input"/>
+                                <input type="number" name="dutchingExitMinute" value="${state.exitForm.dutchingExitMinute}" placeholder="Minuto do Cashout" class="text-input" oninput="handleExitFormChangeModal(event)"/>
                             </div>
                         </div>
 
@@ -1195,11 +1217,11 @@
                         <div class="grid grid-cols-2 gap-4 col-span-2">
                             <div>
                                 <label class="modal-label">Saída Lay 0x1 (Lucro/Red %):</label>
-                                <input type="text" name="layExit" value="${state.exitForm.layExit}" placeholder="Ex: +10% ou -50%" class="text-input" ${isLay0x1Blocked ? 'disabled' : ''}/>
+                                <input type="text" name="layExit" value="${state.exitForm.layExit}" placeholder="Ex: +10% ou -50%" class="text-input" ${isLay0x1Blocked ? 'disabled' : ''} oninput="handleExitFormChangeModal(event)"/>
                             </div>
                             <div>
                                 <label class="modal-label">Minuto da Saída Lay 0x1 (Cashout):</label>
-                                <input type="number" name="layExitMinute" value="${state.exitForm.layExitMinute}" placeholder="Minuto do Cashout" class="text-input" ${isLay0x1Blocked ? 'disabled' : ''}/>
+                                <input type="number" name="layExitMinute" value="${state.exitForm.layExitMinute}" placeholder="Minuto do Cashout" class="text-input" ${isLay0x1Blocked ? 'disabled' : ''} oninput="handleExitFormChangeModal(event)"/>
                             </div>
                         </div>
                     </div>
@@ -1228,6 +1250,7 @@
                                                 value="${item.pnl || ''}"
                                                 placeholder="%"
                                                 class="w-full py-1 px-1 border rounded-md text-center text-xs ${getExitColorClass(item.pnl)}"
+                                                oninput="handleTimelineChange('dutching', ${index}, this.value)"
                                             />
                                         </td>
                                     `).join('')}
@@ -1265,6 +1288,7 @@
                                                     placeholder="%"
                                                     class="${inputClass}"
                                                     ${isDisabled ? 'disabled' : ''}
+                                                    oninput="handleTimelineChange('lay', ${index}, this.value)"
                                                 />
                                             </td>
                                         `;
@@ -1290,19 +1314,10 @@
         const formEl = document.getElementById('exit-form');
 
         // Adiciona listeners para os campos do modal (Saída/Edição)
-        formEl.querySelectorAll('input[name], select[name]').forEach(input => input.addEventListener('input', handleExitFormChange));
-        
+        // OBS: Os listeners de input para os campos principais estão agora inline (oninput="handleExitFormChangeModal(event)")
+
         // Adiciona listeners para os campos da Timeline
-        const timelineInputs = formEl.querySelectorAll('input[data-method]');
-        timelineInputs.forEach(input => {
-            input.addEventListener('input', (e) => {
-                const method = e.target.getAttribute('data-method');
-                const index = parseInt(e.target.getAttribute('data-index'));
-                handleTimelineChange(method, index, e.target.value);
-                // Atualiza a cor da célula na timeline
-                e.target.className = e.target.className.replace(/text-(green|red|gray)-\d+/g, 'text-gray-500') + ' ' + getExitColorClass(e.target.value);
-            });
-        });
+        // OBS: Os listeners de input para os campos da Timeline estão agora inline (oninput="handleTimelineChange(...)")
 
         document.getElementById('exit-modal-cancel').addEventListener('click', () => updateState({ editingTradeId: null }));
         formEl.addEventListener('submit', handleSaveExit);
@@ -1348,8 +1363,9 @@
                         <p><strong>Saída Lay 0x1:</strong> <span class="${getExitColorClass(trade.layExit)}">${trade.layExit || '-'}</span> no Minuto ${trade.layExitMinute || '-'}</p>
                         
                         <div class="col-span-2 mt-2 pt-2 border-t">
-                            <p><strong>Lucro Inicial XG:</strong> <span class="${getExitColorClass(trade.initialPnl0x0)} font-bold">${trade.initialPnl0x0 || 'N/A'}</span></p>
-                            <p><strong>Joguei pra Frente (%):</strong> ${trade.stakeTradeOut || 'N/A'}</p>
+                            <p><strong>Lucro Inicial XG:</strong> <span class="${getExitColorClass(trade.initialPnl)} font-bold">${trade.initialPnl || 'N/A'}</span></p>
+                            <p><strong>Custo Proteção (%):</strong> ${trade.tradeOutCost || 'N/A'}</p>
+                            <p><strong>Placares Adicionais Comprados:</strong> ${trade.additionalProtections || 'N/A'}</p>
                             <p><strong>Lucro Final Consolidado:</strong> <span class="${getExitColorClass(trade.finalPnlConsolidated)} font-bold">${trade.finalPnlConsolidated || '-'}</span></p>
                         </div>
                     </div>
