@@ -3,100 +3,102 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Banco de Dados de Trades Live</title>
-    <!-- Carrega Tailwind CSS CDN -->
+    <title>Registro de Trades Live</title>
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Carrega Chart.js CDN para gráficos -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- Configuração de Fonte -->
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6;
+            background-color: #f7f7f7;
+            color: #1f2937;
         }
-        /* Classe utilitária para centralizar entradas em colunas */
-        .input-group label {
-            font-size: 0.7rem; /* Reduzido para melhor simetria */ 
-            display: block;
-            margin-bottom: 0.2rem; /* Reduzido o espaço */
-            font-weight: 500;
-            line-height: 1; /* Garante que o texto ocupe apenas uma linha de altura */
+        /* Estilos do Modal para permitir scroll interno sem afetar a página */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
-        .form-grid {
-            display: grid;
-            gap: 1rem;
-        }
-        @media (min-width: 768px) {
-            .form-grid-metrics {
-                grid-template-columns: repeat(6, 1fr);
-            }
-        }
-        .text-input {
-             appearance: none;
-             border: 1px solid #d1d5db; 
-             border-radius: 0.375rem; 
-             width: 100%; 
-             padding: 0.5rem 0.75rem;
-             box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-             font-size: 0.8rem; /* Reduzido levemente */
-        }
-        /* Estilo para a aba ativa */
-        .tab-button.active {
-            border-bottom: 3px solid #4f46e5;
-            color: #4f46e5;
-            font-weight: 600;
-        }
-        /* Estilo para o modal de saída para garantir que caiba na tela */
-        .exit-modal-content {
+        .modal-content {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            max-width: 90%;
             max-height: 90vh;
-            overflow-y: auto;
+            overflow-y: auto; /* Permite scroll dentro do modal */
+            padding: 24px;
         }
-        /* Ajuste do rótulo para forçar alinhamento no modal */
-        .modal-label {
-            display: block;
-            margin-bottom: 0.2rem;
-            font-size: 0.7rem;
-            line-height: 1.1; /* Ajuste para evitar quebra de linha */
-            font-weight: 500;
-            color: #4b5563;
+        .loading-ring {
+            width: 24px;
+            height: 24px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
         }
-        .disabled-timeline-input {
-            background-color: #f3f4f6;
-            color: #9ca3af;
-            cursor: not-allowed;
-            border: 1px dashed #d1ddff;
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
 <body>
 
-<div id="app" class="min-h-screen p-4 sm:p-8">
-    <!-- O conteúdo da aplicação será renderizado aqui -->
+<div id="appContainer" class="p-4 sm:p-6 lg:p-8">
+    <!-- O conteúdo do aplicativo (Login/App) será renderizado aqui -->
 </div>
 
-<!-- Scripts Firebase e Lógica da Aplicação -->
 <script type="module">
-    // Importações do Firebase (Versão 12.3.0)
+    // Importações do Firebase
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-    import { 
-        getAuth, onAuthStateChanged, signOut,
-        signInWithEmailAndPassword, createUserWithEmailAndPassword 
-    } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-auth.js";
-    import { 
-        getFirestore, collection, addDoc, onSnapshot, doc, 
-        updateDoc, deleteDoc, query, orderBy, serverTimestamp 
-    } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+    import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-auth.js";
+    import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, orderBy, doc, deleteDoc, updateDoc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
 
-    // --- CONFIGURAÇÃO E INICIALIZAÇÃO ---
-    let db, auth;
-    let userId = null;
-    
-    // API Key para o Gemini (deve ser vazia aqui, o ambiente a fornece)
-    const GEMINI_API_KEY = "";
-    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_API_KEY}`;
+    // Variáveis Globais de Estado
+    let state = {
+        user: null,
+        trades: [],
+        activeTab: 'data', // 'data', 'dashboard'
+        loading: false,
+        authLoading: true,
+        loginForm: { email: '', password: '' },
+        tradeForm: {
+            gameName: '', date: '', xgHome: '', xgAway: '',
+            shotsHtHome: '', shotsHtAway: '', dutchingPercent: '', lay0x1Percent: '',
+            isActive: true, // Novo trade é sempre ativo
+        },
+        exitForm: {
+            tradeId: null,
+            placarFinal: '',
+            goalMinute: '',
+            goalTeam: 'Casa',
+            dutchingExit: '',
+            dutchingExitMinute: '',
+            layExit: '',
+            layExitMinute: '',
+            lucroInicialXG: '',
+            custoProtecao: '',
+            placaresAdicionais: '',
+        },
+        timeline: {}, // Para armazenar PnL de 5 em 5 minutos
+        viewingTimelineTrade: null, // Trade atual para visualizar a timeline
+        isEditingTrade: false, // Flag para saber se está editando ou registrando saída
+        isSavingExit: false, // Flag para evitar cliques duplicados no salvamento de saída
+    };
 
-
-    // Configuração do Firebase fornecida pelo usuário (Hardcoded)
+    // Variáveis Globais de Configuração (SEUS DADOS)
+    // ATENÇÃO: Se estiver usando o ambiente Canvas, você deve usar as variáveis __app_id e __firebase_config.
+    // Neste caso, estamos usando o seu JSON de configuração.
     const firebaseConfig = {
         apiKey: "AIzaSyDVizv6h_LtzJmssiKZdzLI0sgRiudHmeM",
         authDomain: "xglay0x1.firebaseapp.com",
@@ -105,1493 +107,1131 @@
         messagingSenderId: "184643794187",
         appId: "1:184643794187:web:5ba997ea06861539249e0e"
     };
-    const appId = firebaseConfig.projectId; // Usa o projectId como appId para o caminho do Firestore
-    
-    const TIME_POINTS = [45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
-    const getCollectionPath = (uid) => `/artifacts/${appId}/users/${uid}/trade_logs`;
 
-    // Estado Global 
-    const state = {
-        trades: [],
-        loading: false,
-        isAuthReady: false, 
-        user: null, // Usuário logado
-        editingTradeId: null,
-        viewingTimelineTrade: null, // MUDOU para armazenar o ID do trade
-        activeTab: 'data', // 'data' ou 'analysis'
-        // Estado de Autenticação
-        authMode: 'login', // 'login' ou 'signup'
-        authEmail: '',
-        authPassword: '',
-        authError: '',
-        // Formulário de Nova Entrada
-        form: {
-            gameName: '', date: '', xgHome: '', xgAway: '', 
-            shotsHtHome: '', shotsHtAway: '', initialRedDutch: '', initialRedLay: ''
-        },
-        // Formulário de Saída (Usado também para Edição)
-        exitForm: {},
-        // Estado da IA
-        aiChatHistory: [],
-        aiLoading: false,
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // Variáveis de Configuração de Análise de IA
+    const ENABLE_GEMINI_AI = true; // Flag para ligar/desligar a IA
+    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=`;
+
+    // Caminho da Coleção
+    const getCollectionRef = (userId) => {
+        const appId = firebaseConfig.projectId;
+        return collection(db, `artifacts/${appId}/users/${userId}/trades`);
     };
 
-    // --- UTILS ---
-    const getExitColorClass = (exitValue) => {
-        if (!exitValue) return 'text-gray-400';
-        const valStr = exitValue.toString();
-        // Remove % e espaços
-        const val = parseFloat(valStr.replace('%', '').trim()); 
-        if (val > 0) return 'text-green-600 font-extrabold';
-        if (val < 0) return 'text-red-600 font-extrabold';
+    // --- FUNÇÕES DE UTILIDADE ---
+
+    const updateState = (newState) => {
+        state = { ...state, ...newState };
+        renderApp();
+    };
+
+    const isFormValid = (form) => {
+        return form.gameName && form.date &&
+               form.xgHome !== '' && form.xgAway !== '' &&
+               form.shotsHtHome !== '' && form.shotsHtAway !== '' &&
+               form.dutchingPercent !== '' && form.lay0x1Percent !== '';
+    };
+
+    const getExitColorClass = (value) => {
+        if (!value || isNaN(parseFloat(value))) return 'text-gray-500';
+        const num = parseFloat(value.replace('%', '').trim());
+        if (num > 0) return 'text-green-600 font-bold';
+        if (num < 0) return 'text-red-600 font-bold';
         return 'text-gray-500';
     };
 
-    const parsePercentage = (value) => {
-        if (!value) return 0;
-        const valStr = value.toString().replace('%', '').trim();
-        return parseFloat(valStr) / 100; // Retorna valor em decimal (ex: 0.15)
-    }
-
-    const formatPercentage = (value) => {
-        if (typeof value !== 'number' || isNaN(value)) return '-';
-        const percent = (value * 100).toFixed(1);
-        if (percent > 0) return `+${percent}%`;
-        if (percent < 0) return `${percent}%`;
-        return '0.0%';
-    }
-
-    const updateState = (newState) => {
-        Object.assign(state, newState);
-        renderApp();
-    };
-    
-    // Função para verificar se todos os campos obrigatórios estão preenchidos
-    const isFormValid = () => {
-        const f = state.form;
-        return (
-            f.gameName !== '' &&
-            f.date !== '' &&
-            f.xgHome !== '' &&
-            f.xgAway !== '' &&
-            f.shotsHtHome !== '' &&
-            f.shotsHtAway !== '' &&
-            f.initialRedDutch !== '' &&
-            f.initialRedLay !== ''
-        );
+    const formatXG = (xgHome, xgAway) => {
+        const h = parseFloat(xgHome) || 0;
+        const a = parseFloat(xgAway) || 0;
+        return `${h.toFixed(2)} x ${a.toFixed(2)}`;
     };
 
-    // Função para atualizar o estado do botão Adicionar Trade diretamente no DOM
-    const updateAddButtonState = () => {
-        const button = document.getElementById('add-trade-button');
-        if (!button) return;
-        
-        const isReadyToSubmit = state.user && isFormValid() && !state.loading; 
-        const buttonDisabled = !isReadyToSubmit;
-        
-        let buttonText;
-        if (!state.user) {
-            buttonText = 'Faça Login para Adicionar';
-        } else if (state.loading) {
-            buttonText = 'Adicionando...';
-        } else if (!isFormValid()) {
-            buttonText = 'Preencha todos os campos';
-        } else {
-            buttonText = 'Adicionar Trade';
-        }
-
-        button.textContent = buttonText;
-        button.disabled = buttonDisabled;
-
-        const activeClasses = 'bg-green-600 hover:bg-green-700 text-white';
-        const disabledClasses = 'bg-gray-400 cursor-not-allowed text-gray-700';
-
-        button.className = `font-bold py-2 px-6 rounded-xl transition duration-200 
-            ${buttonDisabled ? disabledClasses : activeClasses}`;
+    const createInput = (label, name, value, type = 'text', required = false, className = '', min = '', max = '') => {
+        return `
+            <div class="flex flex-col mb-3">
+                <label for="${name}" class="text-gray-600 font-semibold text-xs mb-1">${label}</label>
+                <input
+                    type="${type}"
+                    name="${name}"
+                    id="${name}"
+                    value="${value}"
+                    ${required ? 'required' : ''}
+                    min="${min}"
+                    max="${max}"
+                    class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm ${className}"
+                    oninput="window.handleTradeFormChange(event)"
+                >
+            </div>
+        `;
     };
 
-    // CORREÇÃO: Função única para criar input
-    const createInput = (type, name, value, label, placeholder, isRequired = false, onChange = handleFormChange, step = null) => {
-        const input = document.createElement('input');
-        input.type = type;
-        input.name = name;
-        input.value = value || '';
-        input.required = isRequired;
-        input.placeholder = placeholder;
-        input.step = step;
-        input.className = 'text-input';
-        
-        input.addEventListener('input', onChange);
-        
-        const labelEl = document.createElement('label');
-        labelEl.textContent = label;
-        labelEl.className = 'text-xs font-medium text-gray-700';
+    // --- FUNÇÕES DE FIREBASE (CRUD) ---
 
-        const div = document.createElement('div');
-        div.className = 'input-group';
-        div.appendChild(labelEl);
-        div.appendChild(input);
-        return div;
-    };
+    const startTradeListener = (userId) => {
+        if (!userId) return;
 
-
-    // --- FIREBASE E AUTENTICAÇÃO ---
-    const initializeFirebase = async () => {
-        if (!firebaseConfig) return console.error("Firebase config não encontrado.");
-        
-        try {
-            const app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
-
-            // Listener para gerenciar o estado de autenticação (logado ou não)
-            onAuthStateChanged(auth, user => {
-                if (user) {
-                    userId = user.uid;
-                    updateState({ user: user, isAuthReady: true, loading: false });
-                    startDataListener(); // Inicia o listener de dados
-                } else {
-                    userId = null;
-                    // Limpa trades e define o estado como pronto para mostrar o login
-                    updateState({ user: null, isAuthReady: true, loading: false, trades: [] }); 
-                }
-            });
-
-        } catch (error) {
-            console.error("Erro ao inicializar Firebase:", error);
-            updateState({ isAuthReady: true, loading: false, authError: "Falha ao conectar com o Firebase." });
-        }
-    };
-
-    const startDataListener = () => {
-        if (!db || !userId) return;
-
-        const tradeCollectionRef = collection(db, getCollectionPath(userId));
-        const q = query(tradeCollectionRef, orderBy('timestamp', 'desc'));
+        const tradesRef = getCollectionRef(userId);
+        const q = query(tradesRef, orderBy('date', 'desc'));
 
         onSnapshot(q, (snapshot) => {
-            const tradesData = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-            updateState({ trades: tradesData });
+            const tradesData = [];
+            snapshot.forEach((doc) => {
+                tradesData.push({ id: doc.id, ...doc.data() });
+            });
+            updateState({ trades: tradesData, loading: false });
         }, (error) => {
             console.error("Erro ao carregar trades:", error);
+            updateState({ loading: false });
         });
     };
 
-    // Handlers de Auth
-    const handleAuthChange = (e) => {
-        state[e.target.name] = e.target.value;
-    };
+    const handleAddTrade = async () => {
+        if (!state.user || state.loading || !isFormValid(state.tradeForm)) return;
 
-    const handleAuthAction = async (e) => {
-        e.preventDefault();
-        const { authEmail, authPassword, authMode } = state;
-        // Atualiza o estado ANTES da operação de autenticação para mostrar loading
-        updateState({ authError: '', loading: true }); 
-
-        try {
-            if (authMode === 'signup') {
-                await createUserWithEmailAndPassword(auth, authEmail, authPassword);
-            } else {
-                await signInWithEmailAndPassword(auth, authEmail, authPassword);
-            }
-        } catch (error) {
-            let errorMessage = "Erro na autenticação.";
-            if (error.code) {
-                switch (error.code) {
-                    case 'auth/invalid-email': errorMessage = 'E-mail inválido.'; break;
-                    case 'auth/user-not-found': errorMessage = 'Usuário não encontrado.'; break;
-                    case 'auth/wrong-password': errorMessage = 'Senha incorreta.'; break;
-                    case 'auth/weak-password': errorMessage = 'Senha deve ter pelo menos 6 caracteres.'; break;
-                    case 'auth/email-already-in-use': errorMessage = 'Este e-mail já está em uso.'; break;
-                    default: errorMessage = error.message;
-                }
-            }
-            updateState({ authError: errorMessage, loading: false });
-        }
-    };
-    
-    const handleSignOut = async () => {
-        updateState({ loading: true });
-        try {
-            await signOut(auth);
-        } catch (error) {
-            console.error("Erro ao fazer logout:", error);
-        } finally {
-            // onAuthStateChanged cuidará da atualização de estado
-        }
-    };
-
-
-    // --- FUNÇÕES DE LÓGICA DO APP ---
-
-    // CORREÇÃO: Chama updateAddButtonState no handleFormChange para revalidar o botão
-    const handleFormChange = (e) => {
-        const { name, value } = e.target;
-        state.form[name] = value;
-        updateAddButtonState(); 
-    };
-    
-    // FUNÇÕES GLOBAIS DE MANIPULAÇÃO DE MODAL (MOVIDAS PARA O ESCOPO GLOBAL)
-    
-    // CORREÇÃO: Função global para manipulação de campos do modal de saída
-    const handleExitFormChangeModal = (e) => {
-        // Prevents default form submit/action that causes scroll and focus loss
-        // Removido e.preventDefault() aqui para evitar interferência na digitação.
-        
-        const { name, value } = e.target;
-        state.exitForm[name] = value;
-        
-        // Força a re-renderização APENAS do modal para atualizar bloqueio de campos (Lay 0x1)
-        // O timeout permite que a digitação se complete antes da re-renderização, resolvendo a perda de foco.
-        setTimeout(renderExitModal, 0); 
-    };
-
-    const handleTimelineChange = (method, index, value) => {
-        const key = `${method}PnlTimeline`;
-        state.exitForm[key][index].pnl = value;
-    };
-
-    // ATTACHMENT TO WINDOW FOR INLINE EVENTS (CORRIGIDO NOVAMENTE)
-    window.handleExitFormChangeModal = handleExitFormChangeModal;
-    window.handleTimelineChange = handleTimelineChange;
-    
-
-    const handleAddTrade = async (e) => {
-        e.preventDefault();
-        // Verifica se o formulário está válido ANTES de iniciar o processo de salvamento
-        if (!userId || !db || state.loading || !isFormValid()) {
-            console.error("Erro: Formulário inválido ou usuário não logado.");
-            return; 
-        }
-        
         updateState({ loading: true });
 
-        const f = state.form;
-        const newTrade = {
-            gameName: f.gameName,
-            date: f.date,
-            xgHome: parseFloat(f.xgHome) || 0,
-            xgAway: parseFloat(f.xgAway) || 0,
-            shotsHtHome: parseInt(f.shotsHtHome) || 0,
-            shotsHtAway: parseInt(f.shotsHtAway) || 0,
-            initialRedDutch: parseFloat(f.initialRedDutch) || 0,
-            initialRedLay: parseFloat(f.initialRedLay) || 0,
-            dutchingExit: null, layExit: null, finalScore: null,
-            dutchingExitMinute: null, layExitMinute: null,
-            // CAMPOS DE EVENTO DE GOL
-            goalMinute: null, 
-            goalTeam: null,
-            // NOVOS CAMPOS PARA TRANSFERÊNCIA DE LUCRO
-            initialPnl: null, // Usando Pnl, pois 0x0 não é o único placar
-            tradeOutCost: null, // NOVO CAMPO: Custo de Proteção (substitui stakeTradeOut)
-            additionalProtections: null, 
-            finalPnlConsolidated: null, 
-            // FIM NOVOS CAMPOS
-            dutchingPnlTimeline: TIME_POINTS.map(time => ({ time, pnl: null })), 
-            layPnlTimeline: TIME_POINTS.map(time => ({ time, pnl: null })),      
-            timestamp: serverTimestamp(),
-            isActive: true,
-        };
-
         try {
-            await addDoc(collection(db, getCollectionPath(userId)), newTrade);
-            // Resetar formulário
-            state.form = { gameName: '', date: '', xgHome: '', xgAway: '', 
-                           shotsHtHome: '', shotsHtAway: '', initialRedDutch: '', initialRedLay: '' };
-            updateState({ }); // Força re-renderização para limpar form e atualizar tabela
-            // CORREÇÃO: Chama updateAddButtonState após a limpeza para garantir que o botão volte a "Preencha..."
-            updateAddButtonState(); 
+            const newTrade = {
+                ...state.tradeForm,
+                createdAt: new Date().toISOString(),
+                date: state.tradeForm.date, // Preserva a data como string
+                xgHome: parseFloat(state.tradeForm.xgHome),
+                xgAway: parseFloat(state.tradeForm.xgAway),
+                shotsHtHome: parseInt(state.tradeForm.shotsHtHome),
+                shotsHtAway: parseInt(state.tradeForm.shotsHtAway),
+                dutchingPercent: parseFloat(state.tradeForm.dutchingPercent),
+                lay0x1Percent: parseFloat(state.tradeForm.lay0x1Percent),
+                isActive: true,
+                exit: null,
+            };
+
+            await addDoc(getCollectionRef(state.user.uid), newTrade);
+
+            // Limpa o formulário após o sucesso
+            updateState({
+                tradeForm: {
+                    gameName: '', date: state.tradeForm.date, xgHome: '', xgAway: '',
+                    shotsHtHome: '', shotsHtAway: '', dutchingPercent: '', lay0x1Percent: '',
+                    isActive: true,
+                },
+                loading: false
+            });
+
         } catch (error) {
             console.error("Erro ao adicionar trade:", error);
-        } finally {
+            alert("Erro ao adicionar trade: " + error.message);
             updateState({ loading: false });
         }
     };
+    window.handleAddTrade = handleAddTrade;
 
-    // Função para iniciar a edição (reutiliza o modal de saída)
-    const handleStartEdit = (trade) => {
-        // Prepara o exitForm com os dados atuais do trade, incluindo a timeline
-        const dutchTimeline = trade.dutchingPnlTimeline || TIME_POINTS.map(time => ({ time, pnl: '' }));
-        const layTimeline = trade.layPnlTimeline || TIME_POINTS.map(time => ({ time, pnl: '' }));
-        
-        state.exitForm = {
-            dutchingExit: trade.dutchingExit || '',
-            layExit: trade.layExit || '',
-            finalScore: trade.finalScore || '',
-            dutchingExitMinute: trade.dutchingExitMinute || '', 
-            layExitMinute: trade.layExitMinute || '',          
-            goalMinute: trade.goalMinute || '', 
-            goalTeam: trade.goalTeam || '',
-            // NOVOS CAMPOS DE TRANSFERÊNCIA DE LUCRO
-            initialPnl: trade.initialPnl || '',
-            tradeOutCost: trade.tradeOutCost || '', // NOVO CAMPO
-            additionalProtections: trade.additionalProtections || '', 
-            finalPnlConsolidated: trade.finalPnlConsolidated || '',
-            // FIM NOVOS CAMPOS
-            dutchingPnlTimeline: dutchTimeline,
-            layPnlTimeline: layTimeline,
-            // Adiciona campos do formulário principal para edição
-            gameName: trade.gameName, 
-            date: trade.date,
-            xgHome: trade.xgHome,
-            xgAway: trade.xgAway,
-            shotsHtHome: trade.shotsHtHome,
-            shotsHtAway: trade.shotsHtAway,
-            initialRedDutch: trade.initialRedDutch,
-            initialRedLay: trade.initialRedLay,
-            isEditingInitial: true // Flag para diferenciar edição de registro de saída
-        };
-        updateState({ editingTradeId: trade.id });
-    };
-
-    const handleStartExit = (trade) => {
-        const dutchTimeline = trade.dutchingPnlTimeline || TIME_POINTS.map(time => ({ time, pnl: '' }));
-        const layTimeline = trade.layPnlTimeline || TIME_POINTS.map(time => ({ time, pnl: '' }));
-        
-        state.exitForm = {
-            dutchingExit: trade.dutchingExit || '',
-            layExit: trade.layExit || '',
-            finalScore: trade.finalScore || '',
-            dutchingExitMinute: trade.dutchingExitMinute || '', 
-            layExitMinute: trade.layExitMinute || '',          
-            goalMinute: trade.goalMinute || '',
-            goalTeam: trade.goalTeam || '',
-            // NOVOS CAMPOS DE TRANSFERÊNCIA DE LUCRO
-            initialPnl: trade.initialPnl || '',
-            tradeOutCost: trade.tradeOutCost || '', // NOVO CAMPO
-            additionalProtections: trade.additionalProtections || '', 
-            finalPnlConsolidated: trade.finalPnlConsolidated || '',
-            // FIM NOVOS CAMPOS
-            dutchingPnlTimeline: dutchTimeline,
-            layPnlTimeline: layTimeline,
-            isEditingInitial: false // Flag para registro de saída
-        };
-        updateState({ editingTradeId: trade.id });
-    };
-
-
-    const handleSaveExit = async (e) => {
-        e.preventDefault();
-        const tradeId = state.editingTradeId;
-        if (!tradeId || !userId || !db || state.loading) return;
-        updateState({ loading: true });
-
-        const ef = state.exitForm;
-        const isEditingInitial = ef.isEditingInitial;
-        
-        // Dados comuns (timeline e saída)
-        const updateData = {
-            dutchingExit: ef.dutchingExit || null,
-            layExit: ef.layExit || null,
-            finalScore: ef.finalScore || null,
-            dutchingExitMinute: ef.dutchingExitMinute ? parseInt(ef.dutchingExitMinute) : null,
-            layExitMinute: ef.layExitMinute ? parseInt(ef.layExitMinute) : null,
-            goalMinute: ef.goalMinute ? parseInt(ef.goalMinute) : null,
-            goalTeam: ef.goalTeam || null,
-            // NOVOS CAMPOS
-            initialPnl: ef.initialPnl || null,
-            tradeOutCost: ef.tradeOutCost || null, // NOVO CAMPO
-            additionalProtections: ef.additionalProtections || null, 
-            finalPnlConsolidated: ef.finalPnlConsolidated || ef.dutchingExit || null,
-            // FIM NOVOS CAMPOS
-            dutchingPnlTimeline: ef.dutchingPnlTimeline.map(item => ({...item, pnl: item.pnl === '' ? null : item.pnl})), 
-            layPnlTimeline: ef.layPnlTimeline.map(item => ({...item, pnl: item.pnl === '' ? null : item.pnl})), 
-            isActive: ef.finalScore === '' || ef.dutchingExit === '' || ef.layExit === '' ? true : false, // Reativa se dados de saída forem apagados
-            exitTimestamp: serverTimestamp(),
-        };
-
-        // Adiciona dados de edição inicial se for o caso
-        if (isEditingInitial) {
-            Object.assign(updateData, {
-                gameName: ef.gameName,
-                date: ef.date,
-                xgHome: parseFloat(ef.xgHome) || 0,
-                xgAway: parseFloat(ef.xgAway) || 0,
-                shotsHtHome: parseInt(ef.shotsHtHome) || 0,
-                shotsHtAway: parseInt(ef.shotsHtAway) || 0,
-                initialRedDutch: parseFloat(ef.initialRedDutch) || 0,
-                initialRedLay: parseFloat(ef.initialRedLay) || 0,
-            });
-        }
-        
-        // Regra para desativar o trade se houver informações de saída
-        if (ef.dutchingExit || ef.layExit || ef.finalScore || ef.goalMinute) {
-             updateData.isActive = false;
-        }
-
+    const handleDeleteTrade = async (tradeId) => {
+        if (!state.user) return;
+        if (!confirm("Tem certeza que deseja excluir este trade?")) return;
 
         try {
-            const tradeRef = doc(db, getCollectionPath(userId), tradeId);
-            await updateDoc(tradeRef, updateData);
-            updateState({ editingTradeId: null });
-        } catch (error) {
-            console.error("Erro ao salvar/editar:", error);
-        } finally {
-            updateState({ loading: false });
-        }
-    };
-    
-    // CORREÇÃO: Função para excluir trade (corrigida)
-    const handleDeleteTrade = async (tradeId, gameName) => {
-        // Usa uma customização para substituir o alert, conforme instrução
-        if (!confirm(`Tem certeza que deseja EXCLUIR o trade de ${gameName}? Esta ação é permanente.`)) return;
-
-        if (!tradeId || !userId || !db || state.loading) return;
-        updateState({ loading: true });
-        
-        try {
-            const tradeRef = doc(db, getCollectionPath(userId), tradeId);
-            await deleteDoc(tradeRef);
+            await deleteDoc(doc(getCollectionRef(state.user.uid), tradeId));
+            // O listener de onSnapshot atualizará o estado automaticamente
         } catch (error) {
             console.error("Erro ao excluir trade:", error);
-        } finally {
-            updateState({ loading: false });
+            alert("Erro ao excluir trade: " + error.message);
         }
     };
-    
-    // Funções de Cálculo do Dashboard
-    const calculateDashboardStats = (trades) => {
-        const closedTrades = trades.filter(t => t.dutchingExit || t.layExit); // Apenas trades com registro de saída
+    window.handleDeleteTrade = handleDeleteTrade;
 
-        let totalPnlDutch = 0;
-        let totalPnlLay = 0;
-        let dutchWins = 0;
-        let dutchLosses = 0;
-        let totalDutchMinutes = 0;
-        let totalClosedTrades = closedTrades.length;
-        
-        // Dados para Gráficos
-        let cumulativePnl = 0;
-        const cumulativePnlData = [];
-        const pnlByMinute = {}; // { 60: {totalPnl: x, count: y}, ... }
-        
-        closedTrades.forEach((trade, index) => {
-            const dutchExit = parsePercentage(trade.dutchingExit);
-            const layExit = parsePercentage(trade.layExit);
+    const handleSaveExit = async () => {
+        if (!state.user || state.isSavingExit) return;
 
-            if (dutchExit !== 0) {
-                totalPnlDutch += dutchExit;
-                
-                // 1. Cumulative Pnl Data (Gráfico 1)
-                cumulativePnl += dutchExit;
-                cumulativePnlData.push({ tradeNumber: index + 1, pnl: cumulativePnl * 100 }); 
+        const { tradeId, placarFinal, goalMinute, goalTeam, dutchingExit, dutchingExitMinute, layExit, layExitMinute, lucroInicialXG, custoProtecao, placaresAdicionais } = state.exitForm;
 
-                // 2. Win/Loss Count
-                if (dutchExit > 0) {
-                    dutchWins++;
-                } else if (dutchExit < 0) {
-                    dutchLosses++;
-                }
-            }
-
-            if (layExit !== 0) {
-                totalPnlLay += layExit;
-            }
-
-            // 3. PnL by Exit Minute (Gráfico 3)
-            const exitMinute = trade.dutchingExitMinute;
-            if (exitMinute) {
-                // Group minutes into 5-minute buckets (e.g., 60, 65, 70)
-                const bucket = Math.floor(exitMinute / 5) * 5; 
-                
-                if (!pnlByMinute[bucket]) {
-                    pnlByMinute[bucket] = { totalPnl: 0, count: 0 };
-                }
-                pnlByMinute[bucket].totalPnl += dutchExit;
-                pnlByMinute[bucket].count++;
-                
-                totalDutchMinutes += exitMinute;
-            } else {
-                totalDutchMinutes += 0; // Se o minuto de saída não foi registrado
-            }
-        });
-
-        const winrateDutch = (dutchWins + dutchLosses) > 0 ? (dutchWins / (dutchWins + dutchLosses)) * 100 : 0;
-        const avgExitMinuteDutch = totalClosedTrades > 0 ? totalDutchMinutes / totalClosedTrades : 0;
-        
-        // Cálculo do Red Médio no 0x1 (assumindo que Red é sempre negativo)
-        const dutchLossesOnly = closedTrades.filter(t => parsePercentage(t.dutchingExit) < 0);
-        let totalLossAmount = 0;
-        dutchLossesOnly.forEach(t => totalLossAmount += parsePercentage(t.dutchingExit));
-
-        const avgRedDutch = dutchLossesOnly.length > 0 ? totalLossAmount / dutchLossesOnly.length : 0;
-        
-        // PnL by Minute Final Array (Gráfico 3)
-        const pnlByMinuteArray = Object.keys(pnlByMinute).sort((a, b) => a - b).map(minute => {
-            const data = pnlByMinute[minute];
-            return {
-                minute: `${minute}'`,
-                avgPnl: (data.totalPnl / data.count) * 100
-            };
-        });
-
-
-        return {
-            totalClosedTrades,
-            totalPnlDutch: formatPercentage(totalPnlDutch),
-            totalPnlLay: formatPercentage(totalPnlLay),
-            winrateDutch: `${winrateDutch.toFixed(1)}%`,
-            avgExitMinuteDutch: avgExitMinuteDutch.toFixed(0),
-            avgRedDutch: formatPercentage(avgRedDutch),
-            
-            // Dados para Gráficos
-            cumulativePnlData,
-            dutchWins,
-            dutchLosses,
-            pnlByMinuteArray
-        };
-    };
-    
-    // --- LÓGICA DE INTEGRAÇÃO COM A IA (GEMINI) ---
-    
-    const sendQueryToAI = async (query) => {
-        if (state.aiLoading) return;
-
-        // 1. Prepara os dados JSON do usuário
-        const closedTrades = state.trades.filter(t => !t.isActive).map(t => {
-            const trade = { ...t };
-            // Limpa dados complexos ou desnecessários para a IA
-            delete trade.timestamp;
-            // *Manter PnL Timeline para a IA analisar o PnL médio por minuto*
-            
-            // Converte porcentagens para números para facilitar a análise da IA
-            trade.dutchingExit = parsePercentage(trade.dutchingExit);
-            trade.layExit = parsePercentage(trade.layExit);
-            // Garante que os números sejam passados como strings ou float para o JSON
-            trade.xgHome = parseFloat(trade.xgHome);
-            trade.xgAway = parseFloat(trade.xgAway);
-            trade.shotsHtHome = parseInt(trade.shotsHtHome);
-            trade.shotsHtAway = parseInt(trade.shotsHtAway);
-            trade.initialRedDutch = parseFloat(trade.initialRedDutch);
-            trade.initialRedLay = parseFloat(trade.initialRedLay);
-
-            return trade;
-        });
-
-        const tradeDataJson = JSON.stringify(closedTrades, null, 2);
-        
-        // 2. Cria o prompt da IA (TURBINADO)
-        const systemPrompt = `Você é um analista de trading esportivo experiente e extremamente detalhista, especializado no método Dutching contra o placar de 0x1. Sua função é responder perguntas sobre o desempenho deste método usando EXCLUSIVAMENTE os dados JSON fornecidos abaixo. Omitindo os passos de cálculo e indo direto ao insight profissional.
-
-        Instruções de Análise e Resposta:
-        1. **Persona:** Responda como um consultor sênior. Use tom de voz direto, profissional e focado em resultados.
-        2. **Base de Dados:** Use APENAS os trades fornecidos no JSON.
-        3. **Formato:** Omitir a repetição dos dados e do processo de filtragem. Apresente o resultado em listas claras (Markdown) ou parágrafos concisos.
-        4. **Análise por Minuto (Timeline):** Para calcular o PnL Médio por minuto (ex: "lucro médio no minuto 75"), você DEVE usar os dados dos arrays 'dutchingPnlTimeline' e 'layPnlTimeline'. Filtre por trades que tenham um valor não nulo para o minuto solicitado e calcule a média desses PnLs.
-        5. **XG por Equipe:** Para perguntas sobre XG de times específicos, a IA deve primeiro tentar identificar o time no 'gameName' (ex: "Time X v Time Y") e calcular a média de 'xgHome' ou 'xgAway' desse time em todos os jogos em que ele apareceu.
-        6. **Métricas Chave:** Calcule sempre o PnL Total, Winrate, e o Red/Green Médio.
-        7. **Conversão:** Retorne os valores de PnL e Red/Green em porcentagens (Ex: 0.15 deve ser 15%).
-        8. **LOGICA FINANCEIRA:** O campo 'tradeOutCost' representa o custo (redução de lucro) para proteger placares adicionais (additionalProtections). O 'finalPnlConsolidated' é o lucro final após esse custo.
-
-        Aqui estão os dados de trades do usuário para análise:
-        ${tradeDataJson}`;
-
-        // 3. Adiciona a pergunta do usuário ao histórico e inicia o loading
-        state.aiChatHistory.push({ role: 'user', text: query });
-        updateState({ aiLoading: true });
-        
-        // 4. Configura a chamada da API
-        const payload = {
-            contents: [{ parts: [{ text: query }] }],
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-        };
-        
-        try {
-            const response = await fetch(GEMINI_API_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            const result = await response.json();
-            const text = result.candidates?.[0]?.content?.parts?.[0]?.text || "Desculpe, não consegui processar essa análise com os dados atuais. Por favor, tente reformular a pergunta ou adicione mais dados.";
-            
-            state.aiChatHistory.push({ role: 'model', text: text });
-        } catch (error) {
-            console.error("Erro na API do Gemini:", error);
-            state.aiChatHistory.push({ role: 'model', text: "Ocorreu um erro ao conectar com o serviço de análise de dados. Verifique sua chave API ou a conexão." });
-        } finally {
-            updateState({ aiLoading: false });
-        }
-    };
-    
-    const handleAIChatSubmit = (e) => {
-        e.preventDefault();
-        const input = document.getElementById('ai-chat-input');
-        const query = input.value.trim();
-        if (query === '') return;
-        
-        sendQueryToAI(query);
-        input.value = '';
-    };
-    
-    // --- FUNÇÃO DE RENDERIZAÇÃO DE GRÁFICOS (CHART.JS) ---
-    const renderCharts = (stats) => {
-        // Certifica-se de que Chart é carregado
-        if (typeof Chart === 'undefined' || stats.totalClosedTrades === 0) return;
-
-        // 1. PnL Acumulado
-        const ctxCum = document.getElementById('chart-cumulative-pnl');
-        if (ctxCum) {
-            // Destrói instância anterior para evitar sobreposição
-            if (Chart.getChart(ctxCum)) Chart.getChart(ctxCum).destroy();
-            
-            new Chart(ctxCum, {
-                type: 'line',
-                data: {
-                    labels: stats.cumulativePnlData.map(d => d.tradeNumber),
-                    datasets: [{
-                        label: 'PnL Acumulado (%)',
-                        data: stats.cumulativePnlData.map(d => d.pnl),
-                        borderColor: '#4f46e5', // Indigo
-                        backgroundColor: 'rgba(79, 70, 229, 0.1)',
-                        tension: 0.2,
-                        pointRadius: 3,
-                        borderWidth: 2,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { 
-                        legend: { display: false }, 
-                        title: { display: true, text: 'PnL Acumulado (Dutching)' } 
-                    },
-                    scales: { 
-                        y: { title: { display: true, text: 'PnL (%)' } }, 
-                        x: { title: { display: true, text: 'Trade' } } 
-                    }
-                }
-            });
-        }
-
-        // 2. Win/Loss Rate (Dutching)
-        const ctxWinLoss = document.getElementById('chart-win-loss');
-        if (ctxWinLoss && (stats.dutchWins + stats.dutchLosses) > 0) {
-            if (Chart.getChart(ctxWinLoss)) Chart.getChart(ctxWinLoss).destroy();
-
-            new Chart(ctxWinLoss, {
-                type: 'doughnut',
-                data: {
-                    labels: [`GREEN (${stats.dutchWins})`, `RED (${stats.dutchLosses})`],
-                    datasets: [{
-                        data: [stats.dutchWins, stats.dutchLosses],
-                        backgroundColor: ['#10b981', '#ef4444'], // Green and Red
-                        hoverOffset: 4
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: true,
-                    plugins: { 
-                        legend: { position: 'bottom' }, 
-                        title: { display: true, text: 'Win/Loss Rate Dutching' } 
-                    }
-                }
-            });
-        }
-        
-        // 3. PnL Médio por Minuto de Saída
-        const ctxAvgPnl = document.getElementById('chart-avg-pnl-minute');
-        if (ctxAvgPnl && stats.pnlByMinuteArray.length > 0) {
-            if (Chart.getChart(ctxAvgPnl)) Chart.getChart(ctxAvgPnl).destroy();
-
-            new Chart(ctxAvgPnl, {
-                type: 'bar',
-                data: {
-                    labels: stats.pnlByMinuteArray.map(d => d.minute),
-                    datasets: [{
-                        label: 'PnL Médio (%)',
-                        data: stats.pnlByMinuteArray.map(d => d.avgPnl),
-                        backgroundColor: stats.pnlByMinuteArray.map(d => d.avgPnl > 0 ? '#10b981' : '#ef4444'),
-                        borderColor: stats.pnlByMinuteArray.map(d => d.avgPnl > 0 ? '#059669' : '#b91c1c'),
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { 
-                        legend: { display: false }, 
-                        title: { display: true, text: 'PnL Médio por Minuto de Saída' } 
-                    },
-                    scales: { 
-                        y: { title: { display: true, text: 'PnL (%)' } }, 
-                        x: { title: { display: true, text: 'Minuto de Saída' } } 
-                    }
-                }
-            });
-        }
-    };
-
-
-    // --- FUNÇÕES DE RENDERIZAÇÃO DO DOM ---
-
-    const renderTradeForm = () => {
-        const formContainer = document.getElementById('trade-form-container');
-        formContainer.innerHTML = ''; 
-
-        const formEl = document.createElement('form');
-        formEl.className = 'form-row';
-        formEl.addEventListener('submit', handleAddTrade);
-
-        // --- Linha 1: Jogo e Data ---
-        const row1 = document.createElement('div');
-        row1.className = 'col-span-1 md:col-span-4 grid grid-cols-4 gap-4';
-        
-        const gameNameInput = createInput('text', 'gameName', state.form.gameName, 'Jogo', 'Ex: Real Madrid v Barcelona', true);
-        gameNameInput.className = 'col-span-3';
-
-        const dateInput = createInput('date', 'date', state.form.date, 'Data', '', true);
-        dateInput.className = 'col-span-1';
-        
-        row1.appendChild(gameNameInput);
-        row1.appendChild(dateInput);
-
-        // --- Linha 2: Métricas (XG, Chutes, Risco) ---
-        // Corrigindo o alinhamento na Linha 2 com 6 colunas
-        const row2 = document.createElement('div');
-        row2.className = 'col-span-1 md:col-span-4 form-grid form-grid-metrics'; 
-        
-        const metrics = [
-            { type: 'number', name: 'xgHome', label: 'XG Casa', placeholder: '1.25', step: '0.01' },
-            { type: 'number', name: 'xgAway', label: 'XG Visitante', placeholder: '0.50', step: '0.01' },
-            { type: 'number', name: 'shotsHtHome', label: 'Chutes Casa', placeholder: '8' },
-            { type: 'number', name: 'shotsHtAway', label: 'Chutes Fora', placeholder: '3' },
-            { type: 'number', name: 'initialRedDutch', label: 'Dutching (%)', placeholder: '62.0', step: '0.1' },
-            { type: 'number', name: 'initialRedLay', label: 'Lay 0x1 (%)', placeholder: '90.0', step: '0.1' },
-        ];
-
-        metrics.forEach(m => {
-            const input = createInput(m.type, m.name, state.form[m.name], m.label, m.placeholder, true, handleFormChange, m.step);
-            row2.appendChild(input);
-        });
-
-        // --- Linha 3: Botão de Adicionar ---
-        const row3 = document.createElement('div');
-        row3.className = 'col-span-1 md:col-span-4 flex justify-end';
-        
-        const button = document.createElement('button');
-        button.id = 'add-trade-button'; // ID necessário para updateAddButtonState
-        button.type = 'submit';
-        
-        // O estado inicial será definido pela chamada subsequente.
-
-        row3.appendChild(button);
-
-        formEl.appendChild(row1);
-        formEl.appendChild(row2);
-        formEl.appendChild(row3);
-        formContainer.appendChild(formEl);
-        
-        // Chamada inicial para definir o texto e estado do botão
-        updateAddButtonState(); 
-    };
-
-    const renderDashboard = () => {
-        const stats = calculateDashboardStats(state.trades);
-        const dashboardContainer = document.createElement('div');
-        dashboardContainer.id = 'dashboard-container';
-        
-        const getColorForPnl = (pnl) => {
-            if (pnl.startsWith('+')) return 'bg-green-100 border-green-400 text-green-700';
-            if (pnl.startsWith('-')) return 'bg-red-100 border-red-400 text-red-700';
-            return 'bg-gray-100 border-gray-400 text-gray-700';
-        };
-
-        const renderChartContainers = () => {
-             if (stats.totalClosedTrades < 1) {
-                 return `<p class="text-center text-lg text-gray-500 py-10">Feche pelo menos 1 trade para visualizar os gráficos de performance.</p>`;
-             }
-             
-             return `
-                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8 mt-4">
-                    <!-- 1. PnL Acumulado -->
-                    <div class="lg:col-span-2 bg-white p-4 rounded-xl shadow-md h-96">
-                        <canvas id="chart-cumulative-pnl"></canvas>
-                    </div>
-                    
-                    <!-- 2. Win/Loss Rate -->
-                    <div class="bg-white p-4 rounded-xl shadow-md h-96 flex items-center justify-center">
-                        <canvas id="chart-win-loss" class="max-h-80"></canvas>
-                    </div>
-                 </div>
-                 
-                 <!-- 3. PnL Médio por Minuto -->
-                 <div class="bg-white p-4 rounded-xl shadow-md h-80 mb-8">
-                     <canvas id="chart-avg-pnl-minute"></canvas>
-                 </div>
-             `;
-        };
-        
-
-        dashboardContainer.innerHTML = `
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-                
-                <!-- Total Trades -->
-                <div class="p-4 border rounded-xl shadow-md bg-white">
-                    <p class="text-xs font-semibold uppercase text-gray-500">Trades Fechados</p>
-                    <p class="text-2xl font-bold text-gray-800">${stats.totalClosedTrades}</p>
-                </div>
-
-                <!-- PnL Dutching -->
-                <div class="p-4 border rounded-xl shadow-md ${getColorForPnl(stats.totalPnlDutch)}">
-                    <p class="text-xs font-semibold uppercase">PnL Dutching Total</p>
-                    <p class="text-2xl font-bold">${stats.totalPnlDutch}</p>
-                </div>
-                
-                <!-- Winrate Dutching -->
-                <div class="p-4 border rounded-xl shadow-md bg-blue-100 border-blue-400 text-blue-700">
-                    <p class="text-xs font-semibold uppercase">Winrate Dutching</p>
-                    <p class="text-2xl font-bold">${stats.winrateDutch}</p>
-                </div>
-
-                <!-- Red Médio Dutching -->
-                <div class="p-4 border rounded-xl shadow-md ${getColorForPnl(stats.avgRedDutch)}">
-                    <p class="text-xs font-semibold uppercase">Red Médio (Losses)</p>
-                    <p class="text-2xl font-bold">${stats.avgRedDutch}</p>
-                </div>
-
-                <!-- Minuto Médio de Saída -->
-                <div class="p-4 border rounded-xl shadow-md bg-purple-100 border-purple-400 text-purple-700">
-                    <p class="text-xs font-semibold uppercase">Minuto Médio de Saída</p>
-                    <p class="text-2xl font-bold">${stats.avgExitMinuteDutch}'</p>
-                </div>
-            </div>
-            
-            <h2 class="text-2xl font-bold text-gray-800 mb-4">Gráficos de Performance (Dutching)</h2>
-            ${renderChartContainers()}
-            
-            <h3 class="text-xl font-bold text-gray-800 mb-4 mt-8">XG IA</h3>
-        `;
-        
-        // Renderiza os gráficos se houver dados
-        if (stats.totalClosedTrades > 0) {
-            // Pequeno timeout para garantir que os elementos canvas existam no DOM
-            setTimeout(() => renderCharts(stats), 10);
-        }
-        
-        return dashboardContainer;
-    };
-
-
-    const renderTradeTable = () => {
-        const tableContainer = document.getElementById('trade-table-container');
-        tableContainer.innerHTML = ''; 
-
-        const table = document.createElement('table');
-        table.className = 'min-w-full divide-y divide-gray-200';
-
-        // Cabeçalho da Tabela
-        const thead = table.createTHead();
-        const headerRow = thead.insertRow();
-        const headers = [
-            'Jogo', 'XG (C x V)', 'Chutes HT (C x F)', 'Dutching (%)', 'Lay 0x1 (%)', 
-            'Evento de Saída', 'Saída Dutch.', 'Minuto Dutch.', 'Saída Lay', 'Minuto Lay', 'Placar Final', 'Ações'
-        ];
-
-        headers.forEach(text => {
-            const th = document.createElement('th');
-            th.textContent = text;
-            // Estilização unificada para o cabeçalho (fonte menor para mais espaço)
-            th.className = 'px-2 py-3 text-[0.65rem] font-medium text-gray-500 uppercase'; 
-            if (['XG (C x V)', 'Chutes HT (C x F)', 'Dutching (%)', 'Lay 0x1 (%)', 'Saída Dutch.', 'Minuto Dutch.', 'Saída Lay', 'Minuto Lay', 'Placar Final', 'Evento de Saída'].includes(text)) {
-                 th.className += ' text-center';
-            } else if (text === 'Jogo') {
-                 th.className += ' text-left';
-            } else {
-                 th.className += ' text-left';
-            }
-            headerRow.appendChild(th);
-        });
-
-        // Corpo da Tabela
-        const tbody = table.createTBody();
-        tbody.className = 'bg-white divide-y divide-gray-200';
-
-        state.trades.forEach(trade => {
-            const row = tbody.insertRow(); 
-            row.className = trade.isActive ? 'bg-yellow-50' : 'bg-white';
-
-            const eventDisplay = trade.goalMinute && trade.goalTeam 
-                ? `${trade.goalTeam} @ ${trade.goalMinute}'`
-                : (trade.finalScore ? 'Placar Final' : 'Aberto');
-
-            const cellData = [
-                { value: trade.gameName, className: 'text-left font-medium' },
-                { value: `${trade.xgHome.toFixed(2)} x ${trade.xgAway.toFixed(2)}`, className: 'text-center' },
-                { value: `${trade.shotsHtHome} x ${trade.shotsHtAway}`, className: 'text-center' },
-                { value: `${trade.initialRedDutch}%`, className: 'text-center' },
-                { value: `${trade.initialRedLay}%`, className: 'text-center' },
-                // Evento de Saída (NOVO)
-                { value: eventDisplay, className: `text-center font-medium ${trade.goalTeam === 'Fora' ? 'text-red-500' : (trade.goalTeam === 'Casa' ? 'text-green-600' : 'text-gray-500')}` },
-                // Saída Dutching
-                { value: trade.dutchingExit || '-', className: `text-center font-bold ${getExitColorClass(trade.dutchingExit)}` },
-                { value: trade.dutchingExitMinute || '-', className: 'text-center' },
-                // Saída Lay
-                { value: trade.layExit || '-', className: `text-center font-bold ${getExitColorClass(trade.layExit)}` },
-                { value: trade.layExitMinute || '-', className: 'text-center' },
-                { value: trade.finalScore || 'Aberto', className: 'text-center font-semibold' },
-            ];
-
-            cellData.forEach(data => {
-                const cell = row.insertCell();
-                cell.textContent = data.value;
-                // Estilo da célula com fonte reduzida para caber mais informação
-                cell.className = `px-2 py-3 whitespace-nowrap text-sm text-gray-900 ${data.className}`;
-            });
-
-            // Célula de Ações (NOVA ESTRUTURA)
-            const actionsCell = row.insertCell();
-            actionsCell.className = 'px-2 py-3 whitespace-nowrap text-sm font-medium space-x-2 text-center flex flex-col md:flex-row md:space-x-1';
-
-            // 1. Botão de Saída/Ver PnL
-            const statusButton = document.createElement('button');
-            statusButton.className = 'py-1 px-2 rounded-full text-xs font-bold transition duration-200 mb-1 md:mb-0';
-
-            if (trade.isActive) {
-                statusButton.textContent = 'Registrar Evento'; // Mudança de Nome
-                statusButton.className += ' bg-indigo-500 hover:bg-indigo-600 text-white';
-                statusButton.addEventListener('click', () => handleStartExit(trade));
-            } else {
-                statusButton.textContent = 'Ver PnL';
-                statusButton.className += ' bg-blue-500 hover:bg-blue-600 text-white';
-                // CORREÇÃO CRÍTICA: Passa o ID do trade, não o objeto.
-                statusButton.addEventListener('click', () => updateState({ viewingTimelineTrade: trade.id }));
-            }
-            actionsCell.appendChild(statusButton);
-
-            // 2. Botão de Editar
-            const editButton = document.createElement('button');
-            editButton.textContent = 'Editar';
-            editButton.className = 'py-1 px-2 rounded-full text-xs font-bold transition duration-200 bg-yellow-500 hover:bg-yellow-600 text-gray-900 mb-1 md:mb-0';
-            editButton.addEventListener('click', () => handleStartEdit(trade));
-            actionsCell.appendChild(editButton);
-            
-            // 3. Botão de Excluir
-            const deleteButton = document.createElement('button');
-            deleteButton.textContent = 'Excluir';
-            deleteButton.className = 'py-1 px-2 rounded-full text-xs font-bold transition duration-200 bg-red-500 hover:bg-red-600 text-white';
-            // CORREÇÃO: Passa os parâmetros corretos para a função de exclusão
-            deleteButton.addEventListener('click', () => handleDeleteTrade(trade.id, trade.gameName));
-            actionsCell.appendChild(deleteButton);
-        });
-
-        tableContainer.appendChild(table);
-    };
-
-    const renderExitModal = () => {
-        const modalContainer = document.getElementById('exit-modal-container');
-        modalContainer.innerHTML = '';
-        if (!state.editingTradeId) return;
-
-        const trade = state.trades.find(t => t.id === state.editingTradeId);
-        if (!trade) return;
-        
-        const isEditingInitial = state.exitForm.isEditingInitial;
-        const modalTitle = isEditingInitial ? `Editar Trade Inicial: ${trade.gameName}` : `Registrar Saída: ${trade.gameName}`;
-        const gameNameValue = isEditingInitial ? state.exitForm.gameName : trade.gameName;
-        const dateValue = isEditingInitial ? state.exitForm.date : trade.date;
-        
-        // --- VARIÁVEIS DE CONTROLE DE BLOQUEIO ---
-        const goalMinute = state.exitForm.goalMinute ? parseInt(state.exitForm.goalMinute) : null;
-        const goalTeam = state.exitForm.goalTeam;
-        const isLay0x1Blocked = goalTeam === 'Casa' && goalMinute !== null; // Bloqueado se Casa marcou
-        
-        // Renderiza campos iniciais para edição, mas como readonly se não estiver editando
-        const renderInitialInputs = () => {
-             if (!isEditingInitial) return '';
-             
-             const metrics = [
-                { type: 'number', name: 'xgHome', label: 'XG Casa', placeholder: '1.25', step: '0.01', value: state.exitForm.xgHome },
-                { type: 'number', name: 'xgAway', label: 'XG Visitante', placeholder: '0.50', step: '0.01', value: state.exitForm.xgAway },
-                { type: 'number', name: 'shotsHtHome', label: 'Chutes Casa', placeholder: '8', value: state.exitForm.shotsHtHome },
-                { type: 'number', name: 'shotsHtAway', label: 'Chutes Fora', placeholder: '3', value: state.exitForm.shotsHtAway },
-                { type: 'number', name: 'initialRedDutch', label: 'Dutching (%)', placeholder: '62.0', step: '0.1', value: state.exitForm.initialRedDutch },
-                { type: 'number', name: 'initialRedLay', label: 'Lay 0x1 (%)', placeholder: '90.0', step: '0.1', value: state.exitForm.initialRedLay },
-            ];
-
-            return `
-                <h4 class="text-lg font-semibold text-gray-800 mb-3">Dados Iniciais (Apenas para Edição)</h4>
-                <div class="grid grid-cols-2 gap-4 mb-4">
-                    <div>
-                        <label class="block text-gray-700 text-sm font-bold mb-1">Jogo:</label>
-                        <input type="text" name="gameName" value="${gameNameValue}" class="text-input" oninput="handleExitFormChangeModal(event)"/>
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 text-sm font-bold mb-1">Data:</label>
-                        <input type="date" name="date" value="${dateValue}" class="text-input" oninput="handleExitFormChangeModal(event)"/>
-                    </div>
-                </div>
-                <div class="grid grid-cols-3 gap-4 mb-6 border-b pb-4">
-                    ${metrics.map(m => `
-                        <div>
-                            <label class="block text-gray-700 text-sm font-bold mb-1">${m.label}:</label>
-                            <input type="${m.type}" name="${m.name}" value="${m.value}" step="${m.step || ''}" class="text-input" oninput="handleExitFormChangeModal(event)"/>
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-        };
-
-
-        const formHtml = `
-            <div class="fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center p-4">
-                <form id="exit-form" class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-4xl exit-modal-content">
-                    <h3 class="xl font-bold mb-4 text-gray-800">${modalTitle}</h3>
-                    
-                    ${renderInitialInputs()}
-
-                    <!-- Seção 1: EVENTO DE GOL E SAÍDAS -->
-                    <h4 class="text-lg font-semibold text-gray-800 mb-3">${isEditingInitial ? 'Dados de Saída (Se Houver)' : 'Evento de Saída e PnL Final'}</h4>
-                    <div class="grid grid-cols-4 gap-4 mb-6 border-b pb-4">
-                        
-                        <!-- Evento de Gol (Primeira linha de campos) -->
-                        <div class="col-span-2 grid grid-cols-2 gap-4 border p-3 rounded-lg bg-gray-50">
-                            <!-- Minuto do GOL -->
-                            <div>
-                                <label class="modal-label">Minuto do GOL:</label>
-                                <input type="number" name="goalMinute" value="${state.exitForm.goalMinute}" placeholder="Ex: 55" class="text-input" oninput="handleExitFormChangeModal(event)"/>
-                            </div>
-                            <!-- Time que Marcou o Gol -->
-                            <div>
-                                <label class="modal-label">Time que Marcou:</label>
-                                <select name="goalTeam" class="text-input" oninput="handleExitFormChangeModal(event)">
-                                    <option value="">-- Selecione --</option>
-                                    <option value="Casa" ${state.exitForm.goalTeam === 'Casa' ? 'selected' : ''}>Casa (Favorito)</option>
-                                    <option value="Fora" ${state.exitForm.goalTeam === 'Fora' ? 'selected' : ''}>Fora (Zebra)</option>
-                                    <option value="Nenhum" ${state.exitForm.goalTeam === 'Nenhum' ? 'selected' : ''}>Nenhum (Final 0-0)</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <!-- Placar Final (Colspan) -->
-                        <div class="col-span-2 flex items-end">
-                            <div class="w-full"> 
-                                <label class="modal-label">Placar Final:</label>
-                                <input type="text" name="finalScore" value="${state.exitForm.finalScore}" placeholder="Ex: 1-1" class="text-input" oninput="handleExitFormChangeModal(event)"/>
-                            </div>
-                        </div>
-                        
-                        <!-- Seção de Transferência de Lucro (Transferida para baixo para melhor alinhamento) -->
-                         <div class="col-span-4 border p-3 rounded-lg bg-yellow-50 grid grid-cols-4 gap-4 mt-2">
-                            <!-- Lucro Inicial XG -->
-                            <div>
-                                <label class="modal-label">Lucro Inicial XG (%):</label>
-                                <input type="text" name="initialPnl" value="${state.exitForm.initialPnl}" placeholder="Ex: +36%" class="text-input" oninput="handleExitFormChangeModal(event)"/>
-                            </div>
-                             <!-- Custo Proteção -->
-                            <div>
-                                <label class="modal-label">Custo Proteção (%):</label>
-                                <input type="text" name="tradeOutCost" value="${state.exitForm.tradeOutCost}" placeholder="Ex: 10%" class="text-input" oninput="handleExitFormChangeModal(event)"/>
-                            </div>
-                            <!-- Proteções Adicionais -->
-                            <div>
-                                <label class="modal-label">Placares Protegidos Adicionais:</label>
-                                <input type="text" name="additionalProtections" value="${state.exitForm.additionalProtections}" placeholder="Ex: 3x0, 2x2" class="text-input" oninput="handleExitFormChangeModal(event)"/>
-                            </div>
-                            <!-- Lucro Final Consolidado -->
-                             <div>
-                                <label class="modal-label">Lucro Final Dutching (%):</label>
-                                <input type="text" name="finalPnlConsolidated" value="${state.exitForm.finalPnlConsolidated}" placeholder="Ex: +26% (Consol.)" class="text-input" oninput="handleExitFormChangeModal(event)"/>
-                            </div>
-                        </div>
-
-
-                        <!-- Dutching Saída (Duas colunas, alinhadas na mesma linha vertical) -->
-                        <div class="grid grid-cols-2 gap-4 col-span-2">
-                            <div>
-                                <label class="modal-label">Saída Dutching (Cashout %):</label>
-                                <input type="text" name="dutchingExit" value="${state.exitForm.dutchingExit}" placeholder="Ex: +18% ou -40%" class="text-input" oninput="handleExitFormChangeModal(event)"/>
-                            </div>
-                            <div>
-                                <label class="modal-label">Minuto da Saída Dutching (Cashout):</label>
-                                <input type="number" name="dutchingExitMinute" value="${state.exitForm.dutchingExitMinute}" placeholder="Minuto do Cashout" class="text-input" oninput="handleExitFormChangeModal(event)"/>
-                            </div>
-                        </div>
-
-                        <!-- Lay 0x1 Saída (Duas colunas, alinhadas na mesma linha vertical) -->
-                        <div class="grid grid-cols-2 gap-4 col-span-2">
-                            <div>
-                                <label class="modal-label">Saída Lay 0x1 (Lucro/Red %):</label>
-                                <input type="text" name="layExit" value="${state.exitForm.layExit}" placeholder="Ex: +10% ou -50%" class="text-input" ${isLay0x1Blocked ? 'disabled' : ''} oninput="handleExitFormChangeModal(event)"/>
-                            </div>
-                            <div>
-                                <label class="modal-label">Minuto da Saída Lay 0x1 (Cashout):</label>
-                                <input type="number" name="layExitMinute" value="${state.exitForm.layExitMinute}" placeholder="Minuto do Cashout" class="text-input" ${isLay0x1Blocked ? 'disabled' : ''} oninput="handleExitFormChangeModal(event)"/>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Seção 2: PnL Timeline (5 em 5 minutos) -->
-                    <h4 class="text-lg font-semibold text-gray-800 mb-3">Linha do Tempo PnL (Lucro/Red a cada 5 Minutos no 2º Tempo)</h4>
-                    <div class="overflow-x-auto pb-4">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="p-2 text-xs font-medium text-gray-500 uppercase">Método</th>
-                                    ${TIME_POINTS.map(time => `<th class="p-2 text-center text-xs font-medium text-gray-500 uppercase min-w-[70px]">${time}'</th>`).join('')}
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                
-                                <!-- Linha Dutching PnL -->
-                                <tr>
-                                    <td class="p-2 text-sm font-medium text-gray-900 whitespace-nowrap">Dutching (%)</td>
-                                    ${state.exitForm.dutchingPnlTimeline.map((item, index) => `
-                                        <td class="p-1">
-                                            <input
-                                                type="text"
-                                                data-method="dutching"
-                                                data-index="${index}"
-                                                value="${item.pnl || ''}"
-                                                placeholder="%"
-                                                class="w-full py-1 px-1 border rounded-md text-center text-xs ${getExitColorClass(item.pnl)}"
-                                                oninput="handleTimelineChange('dutching', ${index}, this.value)"
-                                            />
-                                        </td>
-                                    `).join('')}
-                                </tr>
-
-                                <!-- Linha Lay 0x1 PnL -->
-                                <tr>
-                                    <td class="p-2 text-sm font-medium text-gray-900 whitespace-nowrap">Lay 0x1 (%)</td>
-                                    ${state.exitForm.layPnlTimeline.map((item, index) => {
-                                        // LÓGICA DE BLOQUEIO DINÂMICO
-                                        let isDisabled = false;
-                                        if (isLay0x1Blocked) {
-                                            // Bloqueia a partir do ponto onde o gol da Casa ocorreu
-                                            if (TIME_POINTS[index] >= goalMinute) {
-                                                isDisabled = true;
-                                            }
-                                        }
-
-                                        // Define o valor e a classe de estilo
-                                        let inputValue = item.pnl || '';
-                                        let inputClass = `w-full py-1 px-1 border rounded-md text-center text-xs ${getExitColorClass(inputValue)}`;
-                                        
-                                        if (isDisabled) {
-                                            inputValue = 'N/A';
-                                            inputClass += ' disabled-timeline-input'; // Classe para visual de bloqueado
-                                        }
-
-                                        return `
-                                            <td class="p-1">
-                                                <input
-                                                    type="text"
-                                                    data-method="lay"
-                                                    data-index="${index}"
-                                                    value="${inputValue}"
-                                                    placeholder="%"
-                                                    class="${inputClass}"
-                                                    ${isDisabled ? 'disabled' : ''}
-                                                    oninput="handleTimelineChange('lay', ${index}, this.value)"
-                                                />
-                                            </td>
-                                        `;
-                                    }).join('')}
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="flex justify-end space-x-3 mt-4">
-                        <button type="button" id="exit-modal-cancel" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-xl transition duration-200">
-                            Cancelar
-                        </button>
-                        <button type="submit" id="exit-modal-save" class="font-bold py-2 px-4 rounded-xl transition duration-200 bg-indigo-600 hover:bg-indigo-700 text-white">
-                            Salvar
-                        </button>
-                    </div>
-                </form>
-            </div>
-        `;
-
-        modalContainer.innerHTML = formHtml;
-        const formEl = document.getElementById('exit-form');
-
-        // Adiciona listeners para os campos do modal (Saída/Edição)
-        // OBS: Os listeners de input para os campos principais estão agora inline (oninput="handleExitFormChangeModal(event)")
-
-        // Adiciona listeners para os campos da Timeline
-        // OBS: Os listeners de input para os campos da Timeline estão agora inline (oninput="handleTimelineChange(...)")
-
-        document.getElementById('exit-modal-cancel').addEventListener('click', () => updateState({ editingTradeId: null }));
-        formEl.addEventListener('submit', handleSaveExit);
-    };
-
-    const renderTimelineViewer = () => {
-        const modalContainer = document.getElementById('timeline-viewer-container');
-        modalContainer.innerHTML = '';
-        if (!state.viewingTimelineTrade) return;
-
-        // CORREÇÃO: Pega o trade usando o ID armazenado no estado
-        const trade = state.trades.find(t => t.id === state.viewingTimelineTrade);
-        if (!trade) {
-             updateState({ viewingTimelineTrade: null }); // Limpa o estado se o trade não for encontrado
+        // Validação básica
+        if (!placarFinal || !dutchingExit || !dutchingExitMinute || !layExit || !layExitMinute || !lucroInicialXG || !custoProtecao) {
+             alert("Preencha todos os campos obrigatórios da saída.");
              return;
         }
 
-        const renderTimelineRowHtml = (data, title) => {
-            return `
-                <tr>
-                    <td class="p-2 text-sm font-bold text-gray-900 whitespace-nowrap">${title}</td>
-                    ${data.map(item => `
-                        <td class="p-2 text-center text-sm">
-                            <span class="${getExitColorClass(item.pnl)}">
-                                ${item.pnl || '-'}
-                            </span>
-                        </td>
-                    `).join('')}
-                </tr>
-            `;
+        updateState({ isSavingExit: true });
+
+        try {
+            const tradeRef = doc(getCollectionRef(state.user.uid), tradeId);
+            const tradeSnapshot = await getDoc(tradeRef);
+
+            if (!tradeSnapshot.exists()) {
+                alert("Trade não encontrado para atualização.");
+                updateState({ isSavingExit: false });
+                return;
+            }
+
+            const currentTrade = tradeSnapshot.data();
+
+            // Formata o PnL da timeline
+            const timelineData = {};
+            for (const key in state.timeline) {
+                if (key.startsWith('dutchingPnl')) {
+                    timelineData[key] = parseFloat(state.timeline[key]) || 0;
+                } else if (key.startsWith('layPnl')) {
+                    timelineData[key] = parseFloat(state.timeline[key]) || 0;
+                }
+            }
+
+            const updatedExitData = {
+                placarFinal,
+                goalMinute: parseInt(goalMinute) || 0,
+                goalTeam,
+                dutchingExit: parseFloat(dutchingExit),
+                dutchingExitMinute: parseInt(dutchingExitMinute),
+                layExit: parseFloat(layExit),
+                layExitMinute: parseInt(layExitMinute),
+                lucroInicialXG: parseFloat(lucroInicialXG),
+                custoProtecao: parseFloat(custoProtecao),
+                placaresAdicionais,
+                timeline: timelineData,
+                closedAt: new Date().toISOString(),
+            };
+
+            const updatedTrade = {
+                ...currentTrade,
+                isActive: false, // Fecha o trade
+                exit: updatedExitData,
+            };
+
+            // Se for edição, também atualiza os dados iniciais do trade (se necessário)
+            if (state.isEditingTrade) {
+                const updatedInitialData = {
+                    gameName: state.tradeForm.gameName,
+                    date: state.tradeForm.date,
+                    xgHome: parseFloat(state.tradeForm.xgHome),
+                    xgAway: parseFloat(state.tradeForm.xgAway),
+                    shotsHtHome: parseInt(state.tradeForm.shotsHtHome),
+                    shotsHtAway: parseInt(state.tradeForm.shotsHtAway),
+                    dutchingPercent: parseFloat(state.tradeForm.dutchingPercent),
+                    lay0x1Percent: parseFloat(state.tradeForm.lay0x1Percent),
+                };
+                Object.assign(updatedTrade, updatedInitialData);
+            }
+
+            await setDoc(tradeRef, updatedTrade);
+
+            // Limpa o estado e fecha o modal
+            updateState({
+                exitForm: { tradeId: null, placarFinal: '', goalMinute: '', goalTeam: 'Casa', dutchingExit: '', dutchingExitMinute: '', layExit: '', layExitMinute: '', lucroInicialXG: '', custoProtecao: '', placaresAdicionais: '' },
+                timeline: {},
+                isEditingTrade: false,
+                isSavingExit: false,
+            });
+
+        } catch (error) {
+            console.error("Erro ao salvar saída:", error);
+            alert("Erro ao salvar saída: " + error.message);
+            updateState({ isSavingExit: false });
+        }
+    };
+    window.handleSaveExit = handleSaveExit;
+
+    // --- FUNÇÕES DE AUTENTICAÇÃO ---
+
+    const handleAuthChange = async (e) => {
+        updateState({
+            loginForm: {
+                ...state.loginForm,
+                [e.target.name]: e.target.value
+            }
+        });
+    };
+    window.handleAuthChange = handleAuthChange;
+
+    const handleLogin = async (isSignUp) => {
+        const { email, password } = state.loginForm;
+        if (state.authLoading || !email || !password) return;
+
+        updateState({ authLoading: true });
+
+        try {
+            if (isSignUp) {
+                await createUserWithEmailAndPassword(auth, email, password);
+                alert("Conta criada com sucesso! Você está logado.");
+            } else {
+                await signInWithEmailAndPassword(auth, email, password);
+            }
+            // onAuthStateChanged cuidará da atualização do estado
+        } catch (error) {
+            console.error("Erro de autenticação:", error);
+            alert(`Erro: ${error.message}`);
+            updateState({ authLoading: false });
+        }
+    };
+    window.handleLogin = handleLogin;
+
+    const handleLogout = async () => {
+        try {
+            await signOut(auth);
+            updateState({ trades: [] }); // Limpa os trades ao sair
+        } catch (error) {
+            console.error("Erro ao sair:", error);
+        }
+    };
+    window.handleLogout = handleLogout;
+
+    // Listener de Autenticação
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            updateState({ user, authLoading: false });
+            startTradeListener(user.uid);
+        } else {
+            updateState({ user: null, authLoading: false, loading: false });
+        }
+        renderApp();
+    });
+
+
+    // --- FUNÇÕES DE RENDERIZAÇÃO ---
+
+    const renderAuth = () => {
+        const { email, password } = state.loginForm;
+        const buttonDisabled = state.authLoading;
+
+        return `
+            <div class="flex items-center justify-center min-h-screen">
+                <div class="bg-white p-6 sm:p-8 rounded-lg shadow-xl w-full max-w-md">
+                    <h2 class="text-2xl font-bold text-center mb-6 text-indigo-600">Login / Cadastro - XG Logger</h2>
+                    <div class="space-y-4">
+                        <input
+                            type="email"
+                            name="email"
+                            placeholder="Email"
+                            value="${email}"
+                            oninput="window.handleAuthChange(event)"
+                            class="w-full p-3 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                            required
+                        />
+                        <input
+                            type="password"
+                            name="password"
+                            placeholder="Senha"
+                            value="${password}"
+                            oninput="window.handleAuthChange(event)"
+                            class="w-full p-3 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                            required
+                        />
+                    </div>
+                    <div class="mt-6 space-y-3">
+                        <button
+                            onclick="window.handleLogin(false)"
+                            class="w-full p-3 text-white bg-indigo-600 rounded-md font-semibold hover:bg-indigo-700 transition duration-150 ${buttonDisabled ? 'opacity-50 cursor-not-allowed' : ''}"
+                            ${buttonDisabled ? 'disabled' : ''}
+                        >
+                            ${state.authLoading ? '<div class="loading-ring mx-auto"></div>' : 'Login'}
+                        </button>
+                        <button
+                            onclick="window.handleLogin(true)"
+                            class="w-full p-3 text-indigo-600 bg-indigo-100 rounded-md font-semibold hover:bg-indigo-200 transition duration-150 ${buttonDisabled ? 'opacity-50 cursor-not-allowed' : ''}"
+                            ${buttonDisabled ? 'disabled' : ''}
+                        >
+                            Cadastrar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    };
+
+    // --- Funções de manipulação de modal ---
+
+    // Função de manipulação de input do formulário principal
+    const handleTradeFormChange = (e) => {
+        updateState({
+            tradeForm: {
+                ...state.tradeForm,
+                [e.target.name]: e.target.value
+            }
+        });
+        // Renderiza o formulário novamente para atualizar o estado do botão
+        document.getElementById('tradeFormContainer').innerHTML = renderTradeForm();
+    };
+    window.handleTradeFormChange = handleTradeFormChange;
+
+
+    // Função de manipulação de input do modal de saída
+    const handleExitFormChangeModal = (e) => {
+        const { name, value } = e.target;
+        // Previne o scroll da página ao digitar
+        // e.preventDefault(); // Comentado para não interferir no fluxo de digitação em certos navegadores
+
+        // Limita inputs numéricos
+        let val = value;
+        if (e.target.type === 'number') {
+            val = val.replace(/[^0-9.-]/g, ''); // Permite números, ponto e sinal de menos
+        }
+
+        updateState({
+            exitForm: {
+                ...state.exitForm,
+                [name]: val
+            }
+        });
+
+        // Força a atualização do modal para refletir o bloqueio dinâmico
+        renderExitModal();
+    };
+    window.handleExitFormChangeModal = handleExitFormChangeModal;
+
+
+    // Função de manipulação de input do PnL da timeline
+    const handleTimelineChange = (e) => {
+        const { name, value } = e.target;
+        // e.preventDefault(); // Comentado para não interferir no fluxo de digitação em certos navegadores
+
+        let val = value;
+        if (e.target.type === 'number') {
+            val = val.replace(/[^0-9.-]/g, ''); // Permite números, ponto e sinal de menos
+        }
+
+        updateState({
+            timeline: {
+                ...state.timeline,
+                [name]: val
+            }
+        });
+
+        // Força a atualização do modal para refletir a mudança
+        renderExitModal();
+    };
+    window.handleTimelineChange = handleTimelineChange;
+
+
+    const openExitModal = (trade) => {
+        updateState({
+            exitForm: {
+                ...state.exitForm,
+                tradeId: trade.id,
+                placarFinal: trade.exit?.placarFinal || '',
+                goalMinute: trade.exit?.goalMinute || '',
+                goalTeam: trade.exit?.goalTeam || 'Casa',
+                dutchingExit: trade.exit?.dutchingExit || '',
+                dutchingExitMinute: trade.exit?.dutchingExitMinute || '',
+                layExit: trade.exit?.layExit || '',
+                layExitMinute: trade.exit?.layExitMinute || '',
+                lucroInicialXG: trade.exit?.lucroInicialXG || '',
+                custoProtecao: trade.exit?.custoProtecao || '',
+                placaresAdicionais: trade.exit?.placaresAdicionais || '',
+            },
+            timeline: trade.exit?.timeline || {}, // Carrega dados da timeline se existirem
+            tradeForm: { // Carrega dados iniciais para edição
+                gameName: trade.gameName,
+                date: trade.date,
+                xgHome: trade.xgHome,
+                xgAway: trade.xgAway,
+                shotsHtHome: trade.shotsHtHome,
+                shotsHtAway: trade.shotsHtAway,
+                dutchingPercent: trade.dutchingPercent,
+                lay0x1Percent: trade.lay0x1Percent,
+            },
+            isEditingTrade: true, // Modo de Edição/Saída
+            isSavingExit: false,
+        });
+        renderExitModal();
+    };
+    window.openExitModal = openExitModal;
+
+    const closeExitModal = () => {
+        updateState({
+            exitForm: { tradeId: null, placarFinal: '', goalMinute: '', goalTeam: 'Casa', dutchingExit: '', dutchingExitMinute: '', layExit: '', layExitMinute: '', lucroInicialXG: '', custoProtecao: '', placaresAdicionais: '' },
+            timeline: {},
+            isEditingTrade: false,
+        });
+        document.getElementById('modalContainer').innerHTML = '';
+    };
+    window.closeExitModal = closeExitModal;
+
+    const openTimelineModal = (trade) => {
+        updateState({ viewingTimelineTrade: trade });
+        renderTimelineModal();
+    };
+    window.openTimelineModal = openTimelineModal;
+
+    const closeTimelineModal = () => {
+        updateState({ viewingTimelineTrade: null });
+        document.getElementById('timelineModalContainer').innerHTML = '';
+    };
+    window.closeTimelineModal = closeTimelineModal;
+
+
+    // --- RENDERIZAÇÃO DE COMPONENTES ---
+
+    const renderTradeForm = () => {
+        const { gameName, date, xgHome, xgAway, shotsHtHome, shotsHtAway, dutchingPercent, lay0x1Percent } = state.tradeForm;
+        const isButtonDisabled = state.loading || !isFormValid(state.tradeForm);
+
+        return `
+            <div id="tradeFormContainer" class="bg-white p-4 rounded-lg shadow-md mb-6">
+                <h3 class="text-xl font-bold mb-4 text-gray-800">Novo Registro de Trade (0x0)</h3>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    ${createInput('Jogo (Time Casa v Visitante)', 'gameName', gameName, 'text', true)}
+                    ${createInput('Data', 'date', date, 'date', true)}
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-6 gap-4 mt-4">
+                    ${createInput('XG Casa', 'xgHome', xgHome, 'number', true, 'text-center', '0', '10')}
+                    ${createInput('XG Visitante', 'xgAway', xgAway, 'number', true, 'text-center', '0', '10')}
+                    ${createInput('Chutes Casa', 'shotsHtHome', shotsHtHome, 'number', true, 'text-center', '0', '50')}
+                    ${createInput('Chutes Fora', 'shotsHtAway', shotsHtAway, 'number', true, 'text-center', '0', '50')}
+                    ${createInput('Dutching (%)', 'dutchingPercent', dutchingPercent, 'number', true, 'text-center', '0', '100')}
+                    ${createInput('Lay 0x1 (%)', 'lay0x1Percent', lay0x1Percent, 'number', true, 'text-center', '0', '100')}
+                </div>
+
+                <button
+                    onclick="window.handleAddTrade()"
+                    class="w-full mt-6 p-3 text-white font-semibold rounded-md transition duration-150 ${isButtonDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}"
+                    ${isButtonDisabled ? 'disabled' : ''}
+                >
+                    ${state.loading ? '<div class="loading-ring mx-auto"></div>' : 'Adicionar Trade'}
+                </button>
+                ${!state.user && state.authLoading === false ? '<p class="text-center mt-3 text-red-500 text-sm">Faça login para adicionar trades.</p>' : ''}
+            </div>
+        `;
+    };
+
+    const renderTradeTable = () => {
+        const openTrades = state.trades.filter(t => t.isActive);
+        const closedTrades = state.trades.filter(t => !t.isActive);
+        const allTrades = [...openTrades, ...closedTrades];
+
+        const generateRow = (trade, isClosed) => {
+            const row = document.createElement('tr');
+            row.className = 'border-b hover:bg-gray-50';
+
+            const addCell = (content, className = '') => {
+                const cell = row.insertCell();
+                cell.className = `p-2 text-xs ${className}`;
+                cell.innerHTML = content;
+                return cell;
+            };
+
+            // Jogo
+            addCell(`<span class="font-medium">${trade.gameName}</span><br><span class="text-gray-500">${trade.date}</span>`);
+            // XG (C x V)
+            addCell(formatXG(trade.xgHome, trade.xgAway), 'text-center');
+            // Chutes (C x V)
+            addCell(`${trade.shotsHtHome} x ${trade.shotsHtAway}`, 'text-center');
+            // Dutching % / Lay 0x1 %
+            addCell(`D: ${trade.dutchingPercent}%<br>L: ${trade.lay0x1Percent}%`, 'text-center');
+
+            if (isClosed && trade.exit) {
+                // Evento de Saída
+                addCell(`
+                    ${trade.exit.goalMinute ? `<span class="font-semibold text-sm">${trade.exit.goalMinute}'</span>` : ''}
+                    ${trade.exit.goalTeam ? `(${trade.exit.goalTeam})` : ''}
+                    <br><span class="text-gray-500">${trade.exit.placarFinal}</span>
+                `, 'text-center');
+
+                // Saída Dutching
+                addCell(`
+                    <span class="${getExitColorClass(trade.exit.dutchingExit)}">${trade.exit.dutchingExit}%</span>
+                    <br><span class="text-gray-500 text-xs">${trade.exit.dutchingExitMinute}'</span>
+                `, 'text-center');
+                 // Saída Lay
+                addCell(`
+                    <span class="${getExitColorClass(trade.exit.layExit)}">${trade.exit.layExit}%</span>
+                    <br><span class="text-gray-500 text-xs">${trade.exit.layExitMinute}'</span>
+                `, 'text-center');
+
+                // Ações
+                addCell(`
+                    <div class="flex space-x-2 justify-center">
+                        <button onclick="window.openExitModal({ id: '${trade.id}', ...${JSON.stringify(trade)} })" class="text-blue-600 hover:text-blue-800 text-xs font-semibold">Editar</button>
+                        <button onclick="window.openTimelineModal(${JSON.stringify(trade).replace(/"/g, '&quot;')})" class="text-indigo-600 hover:text-indigo-800 text-xs font-semibold">Ver PnL</button>
+                        <button onclick="window.handleDeleteTrade('${trade.id}')" class="text-red-600 hover:text-red-800 text-xs font-semibold">Excluir</button>
+                    </div>
+                `, 'text-center');
+
+            } else {
+                 // Ações
+                addCell('<span class="text-gray-500">—</span>', 'text-center');
+                addCell('<span class="text-gray-500">—</span>', 'text-center');
+                addCell('<span class="text-gray-500">—</span>', 'text-center');
+
+                addCell(`
+                    <div class="flex space-x-2 justify-center">
+                        <button onclick="window.openExitModal({ id: '${trade.id}', ...${JSON.stringify(trade)} })" class="text-green-600 hover:text-green-800 text-xs font-semibold">Registrar Saída</button>
+                        <button onclick="window.handleDeleteTrade('${trade.id}')" class="text-red-600 hover:text-red-800 text-xs font-semibold">Excluir</button>
+                    </div>
+                `, 'text-center');
+            }
         };
 
-        const viewerHtml = `
-            <div class="fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center p-4">
-                <div class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-4xl exit-modal-content">
-                    <h3 class="text-xl font-bold mb-4 text-gray-800">Timeline PnL: ${trade.gameName}</h3>
-                    
-                    <!-- Resumo da Saída -->
-                    <div class="mb-4 text-sm text-gray-600 grid grid-cols-2 gap-2">
-                        <p><strong>Evento de Saída:</strong> <span class="${trade.goalTeam === 'Fora' ? 'text-red-500' : (trade.goalTeam === 'Casa' ? 'text-green-600' : 'text-gray-500')} font-bold">${trade.goalTeam || '-'} @ ${trade.goalMinute || '-'}</span></p>
-                        <p><strong>Placar Final:</strong> ${trade.finalScore || '-'}</p>
-                        <p><strong>Saída Dutching:</strong> <span class="${getExitColorClass(trade.dutchingExit)}">${trade.dutchingExit || '-'}</span> no Minuto ${trade.dutchingExitMinute || '-'}</p>
-                        <p><strong>Saída Lay 0x1:</strong> <span class="${getExitColorClass(trade.layExit)}">${trade.layExit || '-'}</span> no Minuto ${trade.layExitMinute || '-'}</p>
-                        
-                        <div class="col-span-2 mt-2 pt-2 border-t">
-                            <p><strong>Lucro Inicial XG:</strong> <span class="${getExitColorClass(trade.initialPnl)} font-bold">${trade.initialPnl || 'N/A'}</span></p>
-                            <p><strong>Custo Proteção (%):</strong> ${trade.tradeOutCost || 'N/A'}</p>
-                            <p><strong>Placares Adicionais Comprados:</strong> ${trade.additionalProtections || 'N/A'}</p>
-                            <p><strong>Lucro Final Consolidado:</strong> <span class="${getExitColorClass(trade.finalPnlConsolidated)} font-bold">${trade.finalPnlConsolidated || '-'}</span></p>
+        const table = document.createElement('div');
+        table.className = 'bg-white p-4 rounded-lg shadow-md overflow-x-auto';
+        table.innerHTML = `
+            <h3 class="text-xl font-bold mb-4 text-gray-800">Histórico de Trades (${allTrades.length})</h3>
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead>
+                    <tr class="bg-gray-50">
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Jogo / Data</th>
+                        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">XG (C x V)</th>
+                        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Chutes HT</th>
+                        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Risco Inicial</th>
+                        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Evento Saída</th>
+                        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Saída Dutch.</th>
+                        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Saída Lay</th>
+                        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="tradeTableBody" class="bg-white divide-y divide-gray-200">
+                </tbody>
+            </table>
+        `;
+
+        const tbody = table.querySelector('#tradeTableBody');
+
+        try {
+            allTrades.forEach(trade => {
+                // Determina se o trade está fechado ou ativo
+                const isClosed = trade.exit && trade.exit.placarFinal;
+                generateRow(trade, isClosed, tbody);
+            });
+        } catch (error) {
+            console.error("Erro ao renderizar linha da tabela:", error);
+            // Adiciona uma linha de erro
+            const errorRow = tbody.insertRow();
+            const errorCell = errorRow.insertCell();
+            errorCell.colSpan = 8;
+            errorCell.className = "text-center py-4 text-red-500 font-semibold";
+            errorCell.textContent = "Erro ao carregar dados. Tente recarregar.";
+        }
+
+        return table.outerHTML;
+    };
+
+    const renderDataTab = () => {
+        return `
+            <div id="dataTabContent" class="space-y-6">
+                ${renderTradeForm()}
+                ${renderTradeTable()}
+            </div>
+        `;
+    };
+
+
+    const renderExitModal = () => {
+        const { tradeId, placarFinal, goalMinute, goalTeam, dutchingExit, dutchingExitMinute, layExit, layExitMinute, lucroInicialXG, custoProtecao, placaresAdicionais } = state.exitForm;
+        const trade = state.trades.find(t => t.id === tradeId);
+        const isButtonDisabled = state.isSavingExit;
+
+        // --- Lógica Dinâmica de Bloqueio ---
+        const isGoalFromHome = goalTeam === 'Casa';
+        const isGoalMinuteSet = parseInt(goalMinute) > 0;
+        const isLay0x1Finished = isGoalMinuteSet && isGoalFromHome;
+
+        const minutes = Array.from({ length: 10 }, (_, i) => 45 + i * 5); // 45, 50, ..., 90
+
+        const renderExitForm = () => {
+            return `
+                <div class="space-y-4">
+                    <!-- Dados Iniciais (Apenas se em modo de edição) -->
+                    ${state.isEditingTrade ? `
+                        <h4 class="text-md font-bold mb-3 text-indigo-600">Edição dos Dados Iniciais</h4>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                             ${createInput('XG Casa', 'xgHome', state.tradeForm.xgHome, 'number', true, 'text-center', '0', '10')}
+                             ${createInput('XG Visitante', 'xgAway', state.tradeForm.xgAway, 'number', true, 'text-center', '0', '10')}
+                             ${createInput('Dutching %', 'dutchingPercent', state.tradeForm.dutchingPercent, 'number', true, 'text-center', '0', '100')}
+                             ${createInput('Lay 0x1 %', 'lay0x1Percent', state.tradeForm.lay0x1Percent, 'number', true, 'text-center', '0', '100')}
+                        </div>
+                        <hr class="my-4 border-gray-200">
+                    ` : ''}
+
+
+                    <!-- Evento de Saída -->
+                    <h4 class="text-md font-bold mb-3 text-indigo-600">Evento e Saída Final</h4>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 items-end">
+                        <div class="flex flex-col">
+                            <label class="text-gray-600 font-semibold text-xs mb-1">Placar Final</label>
+                            <input type="text" name="placarFinal" value="${placarFinal}" oninput="window.handleExitFormChangeModal(event)" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" placeholder="Ex: 1 - 1" required>
+                        </div>
+                        <div class="flex flex-col">
+                            <label class="text-gray-600 font-semibold text-xs mb-1">Minuto do GOL</label>
+                            <input type="number" name="goalMinute" value="${goalMinute}" oninput="window.handleExitFormChangeModal(event)" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" placeholder="Minuto" min="45" max="90">
+                        </div>
+                        <div class="flex flex-col">
+                            <label class="text-gray-600 font-semibold text-xs mb-1">Time que Marcou</label>
+                            <select name="goalTeam" value="${goalTeam}" onchange="window.handleExitFormChangeModal(event)" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm">
+                                <option value="Casa" ${goalTeam === 'Casa' ? 'selected' : ''}>Casa</option>
+                                <option value="Fora" ${goalTeam === 'Fora' ? 'selected' : ''}>Fora (Zebra)</option>
+                                <option value="Nenhum" ${goalTeam === 'Nenhum' ? 'selected' : ''}>Nenhum (0x0)</option>
+                            </select>
                         </div>
                     </div>
 
-                    <div class="overflow-x-auto mb-6">
+                    <h4 class="text-md font-bold mb-3 mt-6 text-indigo-600">Lucro/Red e Tempo de Saída</h4>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 items-end">
+                        <div class="flex flex-col">
+                            <label class="text-gray-600 font-semibold text-xs mb-1">Saída Dutching (%)</label>
+                            <input type="number" name="dutchingExit" value="${dutchingExit}" oninput="window.handleExitFormChangeModal(event)" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" placeholder="+/- %" required>
+                        </div>
+                        <div class="flex flex-col">
+                            <label class="text-gray-600 font-semibold text-xs mb-1">Minuto da Saída Dutch.</label>
+                            <input type="number" name="dutchingExitMinute" value="${dutchingExitMinute}" oninput="window.handleExitFormChangeModal(event)" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" placeholder="Minuto" min="45" max="95" required>
+                        </div>
+                         <div class="flex flex-col">
+                            <label class="text-gray-600 font-semibold text-xs mb-1">Saída Lay 0x1 (%)</label>
+                            <input type="number" name="layExit" value="${layExit}" oninput="window.handleExitFormChangeModal(event)" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" placeholder="+/- %" required>
+                        </div>
+                        <div class="flex flex-col">
+                            <label class="text-gray-600 font-semibold text-xs mb-1">Minuto da Saída Lay 0x1</label>
+                            <input type="number" name="layExitMinute" value="${layExitMinute}" oninput="window.handleExitFormChangeModal(event)" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" placeholder="Minuto" min="45" max="95" required>
+                        </div>
+                    </div>
+
+                    <!-- Transferência de Lucro / Custos -->
+                    <h4 class="text-md font-bold mb-3 mt-6 text-indigo-600">Transferência de Lucro / Custos</h4>
+                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 items-end">
+                        <div class="flex flex-col">
+                            <label class="text-gray-600 font-semibold text-xs mb-1">Lucro Inicial XG (%)</label>
+                            <input type="number" name="lucroInicialXG" value="${lucroInicialXG}" oninput="window.handleExitFormChangeModal(event)" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" placeholder="Ex: 30" required>
+                        </div>
+                        <div class="flex flex-col">
+                            <label class="text-gray-600 font-semibold text-xs mb-1">Custo Proteção (%)</label>
+                            <input type="number" name="custoProtecao" value="${custoProtecao}" oninput="window.handleExitFormChangeModal(event)" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" placeholder="Custo de proteção" required>
+                        </div>
+                        <div class="flex flex-col col-span-2">
+                             <label class="text-gray-600 font-semibold text-xs mb-1">Placares Protegidos Adicionais (Ex: 3x0, 2x2)</label>
+                            <input type="text" name="placaresAdicionais" value="${placaresAdicionais}" oninput="window.handleExitFormChangeModal(event)" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" placeholder="Opcional">
+                        </div>
+                    </div>
+
+
+                    <h4 class="text-md font-bold mb-3 mt-6 text-indigo-600">Timeline PnL (Lucro/Red a cada 5 Minutos)</h4>
+                    <p class="text-xs text-red-500 mb-3">${isLay0x1Finished ? `⚠️ Lay 0x1 Bloqueado após ${goalMinute}' (Gol da Casa)` : ''}</p>
+
+                    <div class="grid grid-cols-5 gap-3 text-center text-xs font-semibold text-gray-700">
+                        <div>Minuto</div>
+                        <div>Dutching PnL (%)</div>
+                        <div>Lay 0x1 PnL (%)</div>
+                    </div>
+
+                    ${minutes.map(minute => {
+                        const dutchName = `dutchingPnl${minute}`;
+                        const layName = `layPnl${minute}`;
+                        // Bloqueio dinâmico: se houve gol da casa ANTES ou NO minuto atual
+                        const isDisabled = isLay0x1Finished && (minute >= parseInt(goalMinute));
+                        const layValue = isDisabled ? 'N/A' : (state.timeline[layName] || '');
+                        const layInputClass = isDisabled ? 'bg-gray-100 cursor-not-allowed' : '';
+
+                        return `
+                            <div class="grid grid-cols-5 gap-3 items-center mb-1">
+                                <div class="col-span-1">${minute}'</div>
+                                <input type="number" name="${dutchName}" value="${state.timeline[dutchName] || ''}" oninput="window.handleTimelineChange(event)" placeholder="%" class="col-span-2 p-1 border rounded-md text-xs text-center" />
+                                <input type="text" name="${layName}" value="${layValue}" oninput="window.handleTimelineChange(event)" placeholder="%" class="col-span-2 p-1 border rounded-md text-xs text-center ${layInputClass}" ${isDisabled ? 'disabled' : ''}/>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        document.getElementById('modalContainer').innerHTML = `
+            <div class="modal-overlay">
+                <div class="modal-content w-full sm:w-3/4 lg:w-2/3 xl:w-1/2">
+                    <h3 class="text-xl font-bold mb-4 text-indigo-600">${state.isEditingTrade ? `Editar Trade: ${trade?.gameName}` : 'Registrar Saída'}</h3>
+
+                    ${renderExitForm()}
+
+                    <div class="flex justify-end space-x-4 mt-6">
+                        <button onclick="window.closeExitModal()" class="p-2 px-4 bg-gray-200 text-gray-800 rounded-md font-semibold hover:bg-gray-300 transition duration-150">
+                            Cancelar
+                        </button>
+                        <button onclick="window.handleSaveExit()" class="p-2 px-4 text-white bg-green-600 rounded-md font-semibold hover:bg-green-700 transition duration-150 ${isButtonDisabled ? 'opacity-50 cursor-not-allowed' : ''}" ${isButtonDisabled ? 'disabled' : ''}>
+                             ${state.isEditingTrade ? 'Salvar Edição / Saída' : 'Registrar Saída'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    };
+
+    const renderTimelineModal = () => {
+        const trade = state.viewingTimelineTrade;
+        if (!trade || !trade.exit || !trade.exit.timeline) return;
+
+        const minutes = Array.from({ length: 10 }, (_, i) => 45 + i * 5);
+        const timeline = trade.exit.timeline;
+
+        const renderPnlValue = (value) => {
+            if (value === 'N/A' || !value) return '<span class="text-gray-400">N/A</span>';
+            const num = parseFloat(value);
+            return `<span class="${getExitColorClass(num)}">${num.toFixed(1)}%</span>`;
+        };
+
+        document.getElementById('timelineModalContainer').innerHTML = `
+            <div class="modal-overlay">
+                <div class="modal-content w-full sm:w-1/2">
+                    <h3 class="text-xl font-bold mb-4 text-indigo-600">Timeline PnL: ${trade.gameName}</h3>
+
+                    <p class="mb-4 text-sm">Dados de Lucro/Red para cada método em faixas de 5 minutos. Evento de Saída: <span class="font-semibold">${trade.exit.placarFinal}</span> no minuto <span class="font-semibold">${trade.exit.goalMinute}'</span> (${trade.exit.goalTeam})</p>
+
+                    <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="p-2 text-xs font-medium text-gray-500 uppercase">Minuto</th>
-                                    ${TIME_POINTS.map(time => `<th class="p-2 text-center text-xs font-medium text-gray-500 uppercase">${time}'</th>`).join('')}
+                            <thead>
+                                <tr class="bg-gray-50">
+                                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Minuto</th>
+                                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Dutching PnL</th>
+                                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Lay 0x1 PnL</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
-                                ${renderTimelineRowHtml(trade.dutchingPnlTimeline, 'Dutching')}
-                                ${renderTimelineRowHtml(trade.layPnlTimeline, 'Lay 0x1')}
+                                ${minutes.map(minute => {
+                                    const dutchValue = timeline[`dutchingPnl${minute}`];
+                                    const layValue = timeline[`layPnl${minute}`];
+                                    return `
+                                        <tr>
+                                            <td class="p-2 text-center text-sm font-semibold">${minute}'</td>
+                                            <td class="p-2 text-center text-sm">${renderPnlValue(dutchValue)}</td>
+                                            <td class="p-2 text-center text-sm">${renderPnlValue(layValue)}</td>
+                                        </tr>
+                                    `;
+                                }).join('')}
                             </tbody>
                         </table>
                     </div>
 
-                    <div class="flex justify-end">
-                        <button id="viewer-close-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-xl transition duration-200">
+                    <div class="flex justify-end mt-6">
+                        <button onclick="window.closeTimelineModal()" class="p-2 px-4 bg-gray-200 text-gray-800 rounded-md font-semibold hover:bg-gray-300 transition duration-150">
                             Fechar
                         </button>
                     </div>
                 </div>
             </div>
         `;
-        
-        modalContainer.innerHTML = viewerHtml;
-        document.getElementById('viewer-close-button').addEventListener('click', () => updateState({ viewingTimelineTrade: null }));
     };
 
-    const renderAuthUI = () => {
-        const title = state.authMode === 'login' ? 'Fazer Login' : 'Criar Conta';
-        const actionButtonText = state.authMode === 'login' ? 'Entrar' : 'Cadastrar';
-        const toggleModeText = state.authMode === 'login' ? 'Não tem conta? Crie uma!' : 'Já tem conta? Faça login!';
+    // --- FUNÇÕES DE DASHBOARD/IA ---
 
-        const authHtml = `
-            <div class="max-w-md mx-auto my-20 bg-white p-8 rounded-xl shadow-2xl">
-                <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">${title}</h1>
-                <form id="auth-form" class="space-y-4">
-                    ${state.authError ? `<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative text-sm" role="alert">${state.authError}</div>` : ''}
+    const renderDashboardTab = () => {
+        // Filtra trades fechados com dados válidos de saída
+        const closedTrades = state.trades.filter(t => !t.isActive && t.exit);
+        const validDutchingExits = closedTrades.filter(t => t.exit.dutchingExitMinute > 0);
 
-                    <div>
-                        <label class="block text-gray-700 text-sm font-bold mb-1">E-mail</label>
-                        <input type="email" name="authEmail" value="${state.authEmail}" placeholder="seu@email.com" required class="text-input"/>
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 text-sm font-bold mb-1">Senha</label>
-                        <input type="password" name="authPassword" value="${state.authPassword}" placeholder="Mínimo 6 caracteres" required class="text-input"/>
-                    </div>
-                    
-                    <button type="submit" ${state.loading ? 'disabled' : ''} class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl transition duration-200 ${state.loading ? 'bg-gray-400' : ''}">
-                        ${state.loading ? 'Aguarde...' : actionButtonText}
-                    </button>
-                </form>
-                
-                <button id="toggle-auth-mode" class="mt-4 w-full text-sm text-indigo-500 hover:text-indigo-700 transition duration-200">
-                    ${toggleModeText}
-                </button>
-            </div>
-        `;
-        
-        const appContainer = document.getElementById('app');
-        appContainer.innerHTML = authHtml;
+        let totalPnLDutching = 0;
+        let totalTrades = validDutchingExits.length;
+        let totalWins = 0;
+        let totalRed = 0;
+        let sumMinutes = 0;
+        let totalMinutesCount = 0;
 
-        document.getElementById('auth-form').addEventListener('submit', handleAuthAction);
-        document.getElementById('auth-form').querySelectorAll('input').forEach(input => {
-            // Remove o listener que causa a perda de foco na digitação
-            input.addEventListener('input', handleAuthChange); 
+        validDutchingExits.forEach(trade => {
+            const pnl = trade.exit.dutchingExit;
+            totalPnLDutching += pnl;
+
+            if (pnl > 0) {
+                totalWins++;
+            } else if (pnl < 0) {
+                totalRed++;
+            }
+
+            if (trade.exit.dutchingExitMinute > 0) {
+                sumMinutes += trade.exit.dutchingExitMinute;
+                totalMinutesCount++;
+            }
         });
-        document.getElementById('toggle-auth-mode').addEventListener('click', () => {
-            updateState({ 
-                authMode: state.authMode === 'login' ? 'signup' : 'login',
-                authError: '',
-                authPassword: '' 
-            });
+
+        const winRate = totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0;
+        const avgExitMinute = totalMinutesCount > 0 ? sumMinutes / totalMinutesCount : 0;
+
+        // PnL Acumulado (Para o Gráfico)
+        let accumulatedPnL = 0;
+        const pnlData = validDutchingExits.map((trade, index) => {
+            accumulatedPnL += trade.exit.dutchingExit;
+            return {
+                x: index + 1, // Trade Number
+                y: parseFloat(accumulatedPnL.toFixed(2)),
+                label: trade.gameName
+            };
         });
-    }
 
-    const renderDataTab = () => {
-        const dataTabContent = document.getElementById('data-tab-content');
-        if (!dataTabContent) return;
-        dataTabContent.innerHTML = `
-            <!-- Formulário de Nova Entrada -->
-            <div class="border border-indigo-200 rounded-xl p-5 mb-8 bg-indigo-50">
-                <h2 class="text-xl font-semibold text-indigo-700 mb-4">Novo Registro de Trade (0x0)</h2>
-                <div id="trade-form-container"></div>
-            </div>
-
-            <!-- Tabela de Histórico -->
-            <h2 class="2xl font-bold text-gray-800 mb-4">Histórico de Trades (${state.trades.length})</h2>
-            
-            <div class="overflow-x-auto shadow-md rounded-xl">
-                <div id="trade-table-container"></div>
-            </div>
-        `;
-        renderTradeForm();
-        renderTradeTable();
-    }
-
-    const renderAnalysisTab = () => {
-        const analysisTabContent = document.getElementById('analysis-tab-content');
-        if (!analysisTabContent) return;
-        analysisTabContent.innerHTML = ''; // Limpa o conteúdo antes de renderizar
-        
-        const dashboardContainer = renderDashboard(); // Renderiza o dashboard
-        analysisTabContent.appendChild(dashboardContainer);
-        
-        // Define o conteúdo inicial do chatbox (será populado em renderAnalysisTab)
-        const initialChatContent = `
-            ${state.aiChatHistory.length === 0 ? `<p class="text-gray-500 italic">Faça uma pergunta sobre seus dados. Ex: "Qual o lucro médio do dutching quando o xg casa > 1.0?"</p>` : ''}
-            ${state.aiChatHistory.map(msg => `
-                <div class="max-w-[80%] ${msg.role === 'user' ? 'self-end bg-indigo-100 text-gray-800' : 'self-start bg-gray-200 text-gray-700'} p-3 rounded-lg shadow-sm text-sm">
-                    <strong class="text-xs uppercase opacity-70">${msg.role === 'user' ? 'Você' : 'Analista IA'}</strong>
-                    <p>${msg.text}</p>
+        const dashboardHTML = `
+            <div class="space-y-8">
+                <h3 class="text-2xl font-bold text-gray-800">Dashboard de Performance (Dutching)</h3>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-6">
+                    <div class="bg-white p-4 rounded-lg shadow-md border-l-4 border-indigo-500">
+                        <p class="text-sm font-medium text-gray-500">PnL Total</p>
+                        <p class="text-2xl font-bold ${getExitColorClass(totalPnLDutching)}">${totalPnLDutching.toFixed(2)}%</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg shadow-md border-l-4 border-indigo-500">
+                        <p class="text-sm font-medium text-gray-500">Winrate (Dutch.)</p>
+                        <p class="text-2xl font-bold text-gray-800">${winRate.toFixed(1)}%</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg shadow-md border-l-4 border-indigo-500">
+                        <p class="text-sm font-medium text-gray-500">Trades Fechados</p>
+                        <p class="text-2xl font-bold text-gray-800">${totalTrades}</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg shadow-md border-l-4 border-indigo-500">
+                        <p class="text-sm font-medium text-gray-500">Minuto Saída Médio</p>
+                        <p class="text-2xl font-bold text-gray-800">${avgExitMinute.toFixed(0)}'</p>
+                    </div>
                 </div>
-            `).join('')}
-            ${state.aiLoading ? `
-                <div class="self-start bg-gray-300 text-gray-700 p-3 rounded-lg text-sm flex items-center space-x-2">
-                    <svg class="animate-spin h-4 w-4 text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <span>Analisando dados...</span>
-                </div>` : ''}
-        `;
-        
-        // --- Renderiza a IA/Chatbox ---
-        const aiSectionHtml = `
-            <h3 class="text-xl font-bold text-gray-800 mb-4 mt-8">XG IA</h3>
-            <div id="ai-chat-box" class="h-96 bg-gray-50 border border-gray-300 rounded-xl p-4 flex flex-col space-y-3 overflow-y-auto mb-4">
-                ${initialChatContent}
+
+                <!-- Gráficos -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="lg:col-span-2 bg-white p-4 rounded-lg shadow-md">
+                        <h4 class="text-lg font-semibold mb-3">PnL Acumulado (Dutching)</h4>
+                        <canvas id="pnlChart"></canvas>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg shadow-md">
+                        <h4 class="text-lg font-semibold mb-3">Win/Loss Rate</h4>
+                        <canvas id="winLossChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Análise IA -->
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h3 class="text-xl font-bold mb-4 text-indigo-600">XG IA</h3>
+                    <div class="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4">
+                        <input type="text" id="aiQuery" placeholder="Pergunte sobre média de XG, lucro por minuto, etc." class="p-3 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500 flex-grow" />
+                        <button onclick="window.handleAIQuery()" class="p-3 text-white bg-indigo-600 rounded-md font-semibold hover:bg-indigo-700 transition duration-150" id="aiButton">
+                            Analisar
+                        </button>
+                    </div>
+                    <div id="aiResponse" class="mt-4 p-4 border border-gray-200 rounded-md bg-gray-50 whitespace-pre-wrap">
+                        Aguardando sua pergunta...
+                    </div>
+                </div>
             </div>
-
-            <form id="ai-chat-form" class="flex space-x-2">
-                <input id="ai-chat-input" type="text" placeholder="Pergunte sobre seus trades registrados..." class="text-input flex-grow" ${state.aiLoading ? 'disabled' : ''}>
-                <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-xl transition duration-200" ${state.aiLoading ? 'disabled' : ''}>
-                    Perguntar
-                </button>
-            </form>
         `;
-        
-        const aiWrapper = document.createElement('div');
-        aiWrapper.innerHTML = aiSectionHtml;
-        analysisTabContent.appendChild(aiWrapper);
+        return dashboardHTML;
+    };
 
-        // Adiciona o listener do formulário de chat
-        document.getElementById('ai-chat-form').addEventListener('submit', handleAIChatSubmit);
+    const handleAIQuery = async () => {
+        if (!ENABLE_GEMINI_AI) {
+             document.getElementById('aiResponse').innerHTML = `<span class="text-red-500">⚠️ A integração da IA está desativada no momento (ENABLE_GEMINI_AI = false).</span>`;
+             return;
+        }
 
-        // Rola para o final do chatbox
-        const chatBox = document.getElementById('ai-chat-box');
-        if (chatBox) chatBox.scrollTop = chatBox.scrollHeight;
-    }
+        const query = document.getElementById('aiQuery').value;
+        const button = document.getElementById('aiButton');
+        const responseDiv = document.getElementById('aiResponse');
 
+        if (!query) return;
+
+        button.disabled = true;
+        responseDiv.innerHTML = '<div class="loading-ring mx-auto my-4"></div>';
+
+        // 1. Prepara os dados para a IA (apenas trades fechados para análise)
+        const tradesToAnalyze = state.trades.filter(t => !t.isActive && t.exit);
+        if (tradesToAnalyze.length === 0) {
+             responseDiv.innerHTML = '<span class="text-red-500">Não há trades fechados com dados de saída para analisar.</span>';
+             button.disabled = false;
+             return;
+        }
+
+        const tradesJSON = JSON.stringify(tradesToAnalyze, null, 2);
+
+        // 2. Cria o System Prompt
+        const systemPrompt = `
+            Você é um analista de trading esportivo de alta gerência, especializado em estratégias de Dutching baseadas em Expected Goals (XG).
+            Sua tarefa é analisar os dados de trades (fornecidos em JSON) para responder a perguntas em linguagem natural de forma concisa e profissional.
+
+            Instruções CRÍTICAS:
+            1. Formatação: Omita os passos de cálculo. Use listas Markdown e parágrafos concisos.
+            2. Análise do Valor: Para médias de lucro/red por minuto, analise o campo 'exit.timeline'.
+            3. XG por Equipe: Para responder sobre a média de XG de uma equipe específica, filtre os trades pelo 'gameName' (ex: 'Flamengo v Fluminense') e calcule a média dos campos 'xgHome' e 'xgAway'.
+            4. Lucro/Red: Use apenas 'dutchingExit' e 'layExit' para PnL final. Use '+' ou '-' para indicar lucro/red.
+            5. Pessoa: Responda em tom profissional e direto, focando em insights estatísticos.
+        `;
+
+        // 3. Monta o Payload da API
+        const payload = {
+            contents: [{ parts: [{ text: `Analise os seguintes dados e responda a pergunta do usuário:\n\nDados JSON:\n${tradesJSON}\n\nPergunta do Usuário: ${query}` }] }],
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            tools: [{ "google_search": {} }],
+        };
+
+        const fetchWithRetry = async (url, options, retries = 3) => {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.ok) return response;
+                    if (response.status === 429 && i < retries - 1) {
+                        const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    }
+                    throw new Error(`API Error: ${response.statusText}`);
+                } catch (error) {
+                    if (i === retries - 1) throw error;
+                    // Exponential backoff handled above
+                }
+            }
+        };
+
+        try {
+            const apiUrl = `${GEMINI_API_URL}${firebaseConfig.apiKey}`;
+            const response = await fetchWithRetry(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const result = await response.json();
+            const text = result.candidates?.[0]?.content?.parts?.[0]?.text || "Erro ao processar a resposta da IA. Tente novamente.";
+
+            responseDiv.innerHTML = `<span class="whitespace-pre-wrap">${text}</span>`;
+        } catch (error) {
+            console.error("Erro na chamada da API Gemini:", error);
+            responseDiv.innerHTML = `<span class="text-red-500">Erro de conexão com a IA. Verifique sua chave API e conexão de rede: ${error.message}</span>`;
+        } finally {
+            button.disabled = false;
+        }
+    };
+    window.handleAIQuery = handleAIQuery;
+
+
+    // --- FUNÇÕES GERAIS DE RENDERIZAÇÃO ---
 
     const renderApp = () => {
-        const appContainer = document.getElementById('app');
-        if (!appContainer) return;
-        
-        // Se o Firebase ainda não carregou o estado do usuário
-        if (!state.isAuthReady) {
-            appContainer.innerHTML = `<div class="p-20 text-center text-gray-600 font-bold">Carregando aplicação...</div>`;
+        const appContainer = document.getElementById('appContainer');
+
+        if (state.authLoading && !state.user) {
+            appContainer.innerHTML = `
+                <div class="flex items-center justify-center min-h-screen">
+                    <div class="flex items-center space-x-3">
+                        <div class="loading-ring"></div>
+                        <p class="text-lg font-semibold text-gray-600">Carregando autenticação...</p>
+                    </div>
+                </div>
+            `;
             return;
         }
 
-        // Se o usuário não está logado, renderiza a UI de autenticação
         if (!state.user) {
-            renderAuthUI();
+            appContainer.innerHTML = renderAuth();
             return;
         }
 
-        // Se o usuário está logado, renderiza a interface principal
-        appContainer.innerHTML = `
-            <div class="max-w-7xl mx-auto bg-white p-6 rounded-xl shadow-2xl">
-                <div class="flex justify-between items-center mb-6 border-b pb-3">
-                    <h1 class="text-3xl font-bold text-gray-800">
-                        📚 Banco de Dados de Trades Live
-                    </h1>
-                    <div class="flex items-center space-x-4">
-                        <span class="text-sm text-gray-600">
-                            Logado como: <strong class="text-indigo-600">${state.user.email}</strong>
-                        </span>
-                        <button id="logout-button" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-xl transition duration-200 text-sm">
+        // Renderização do Aplicativo Principal (Logado)
+        const renderMainApp = () => {
+            return `
+                <div class="flex justify-between items-center mb-6 p-4 bg-white rounded-lg shadow-md">
+                    <h1 class="text-3xl font-extrabold text-indigo-700">Banco de Dados de Trades Live</h1>
+                    <div class="flex space-x-4 items-center">
+                        <span class="text-sm font-medium text-gray-600 hidden sm:block">Usuário: ${state.user.email}</span>
+                        <button onclick="window.handleLogout()" class="p-2 px-4 bg-red-500 text-white rounded-md font-semibold text-sm hover:bg-red-600 transition duration-150">
                             Sair
                         </button>
                     </div>
                 </div>
-                
+
                 <!-- Abas de Navegação -->
-                <div class="flex border-b border-gray-300 mb-6">
-                    <button id="tab-data" class="tab-button ${state.activeTab === 'data' ? 'active' : ''} py-2 px-4 mr-2 text-gray-500 hover:text-indigo-500 transition duration-200" onclick="document.getElementById('ai-chat-box')?.remove()">
-                        Registro de Trades
-                    </button>
-                    <button id="tab-analysis" class="tab-button ${state.activeTab === 'analysis' ? 'active' : ''} py-2 px-4 text-gray-500 hover:text-indigo-500 transition duration-200">
-                        Dashboard & Análise IA
-                    </button>
+                <div class="border-b border-gray-200 mb-6">
+                    <nav class="flex space-x-4">
+                        <button
+                            onclick="updateState({ activeTab: 'data' })"
+                            class="py-2 px-4 font-semibold text-sm transition duration-150 ${state.activeTab === 'data' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-gray-500 hover:text-indigo-600'}"
+                        >
+                            Registro de Trades
+                        </button>
+                        <button
+                            onclick="updateState({ activeTab: 'dashboard' })"
+                            class="py-2 px-4 font-semibold text-sm transition duration-150 ${state.activeTab === 'dashboard' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-gray-500 hover:text-indigo-600'}"
+                        >
+                            Dashboard & Análise IA
+                        </button>
+                    </nav>
                 </div>
 
                 <!-- Conteúdo das Abas -->
-                <div id="data-tab-content" style="display: ${state.activeTab === 'data' ? 'block' : 'none'};"></div>
-                <div id="analysis-tab-content" style="display: ${state.activeTab === 'analysis' ? 'block' : 'none'};"></div>
-            </div>
-            <!-- Containers de Modal -->
-            <div id="exit-modal-container"></div>
-            <div id="timeline-viewer-container"></div>
-        `;
-        
-        // Listeners para a navegação de abas
-        document.getElementById('tab-data').addEventListener('click', () => updateState({ activeTab: 'data' }));
-        document.getElementById('tab-analysis').addEventListener('click', () => updateState({ activeTab: 'analysis' }));
-        document.getElementById('logout-button').addEventListener('click', handleSignOut);
+                <div id="tabContent">
+                    ${state.activeTab === 'data' ? renderDataTab() : renderDashboardTab()}
+                </div>
 
-        // Renderiza o conteúdo da aba ativa
-        if (state.activeTab === 'data') {
-            renderDataTab();
-        } else {
-            renderAnalysisTab();
+                <!-- Modais -->
+                <div id="modalContainer"></div>
+                <div id="timelineModalContainer"></div>
+            `;
+        };
+        appContainer.innerHTML = renderMainApp();
+
+        // Renderiza Gráficos após o DOM estar pronto
+        if (state.activeTab === 'dashboard') {
+            const closedTrades = state.trades.filter(t => !t.isActive && t.exit);
+            const validDutchingExits = closedTrades.filter(t => t.exit.dutchingExitMinute > 0);
+
+            // 1. PnL Acumulado
+            let accumulatedPnL = 0;
+            const pnlData = validDutchingExits.map((trade, index) => {
+                accumulatedPnL += trade.exit.dutchingExit;
+                return {
+                    x: index + 1, // Trade Number
+                    y: parseFloat(accumulatedPnL.toFixed(2)),
+                    label: trade.gameName
+                };
+            });
+
+            const pnlChartCtx = document.getElementById('pnlChart');
+            if (pnlChartCtx) {
+                new Chart(pnlChartCtx, {
+                    type: 'line',
+                    data: {
+                        labels: pnlData.map(d => d.x),
+                        datasets: [{
+                            label: 'PnL Acumulado (%)',
+                            data: pnlData.map(d => d.y),
+                            borderColor: '#4f46e5',
+                            backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                            fill: true,
+                            tension: 0.3
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            x: { title: { display: true, text: 'Número do Trade' } },
+                            y: { title: { display: true, text: 'PnL Acumulado (%)' } }
+                        }
+                    }
+                });
+            }
+
+            // 2. Win/Loss Rate
+            let totalWins = closedTrades.filter(t => t.exit.dutchingExit > 0).length;
+            let totalLosses = closedTrades.filter(t => t.exit.dutchingExit < 0).length;
+            let totalBreakeven = closedTrades.filter(t => t.exit.dutchingExit === 0).length;
+            let totalClosed = closedTrades.length;
+
+            const winLossChartCtx = document.getElementById('winLossChart');
+            if (winLossChartCtx) {
+                new Chart(winLossChartCtx, {
+                    type: 'pie',
+                    data: {
+                        labels: ['Ganhos (GREEN)', 'Perdas (RED)', 'Zero (Break-Even)'],
+                        datasets: [{
+                            data: [totalWins, totalLosses, totalBreakeven],
+                            backgroundColor: ['#10b981', '#ef4444', '#f59e0b'],
+                            hoverOffset: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: { position: 'top' },
+                            title: { display: false }
+                        }
+                    }
+                });
+            }
         }
-        
-        renderExitModal();
-        renderTimelineViewer();
     };
 
-    // --- Início da Aplicação ---
-    window.onload = initializeFirebase;
+    // --- Inicialização do App ---
+    renderApp();
+
 </script>
+<!-- Containers para os Modais -->
+<div id="modalContainer"></div>
+<div id="timelineModalContainer"></div>
 </body>
 </html>
+
